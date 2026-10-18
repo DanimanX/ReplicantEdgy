@@ -30,26 +30,35 @@ namespace ReplicantEdgy
         void reset() noexcept;
 
         void setTempo (float bpm) noexcept;
-        void setScale (ClockScale newScale) noexcept { scale = newScale; }
-        void setClockSource (ClockSource newSource) noexcept { clockSource = newSource; }
-        ClockSource getClockSource() const noexcept { return clockSource; }
+        void setScale (ClockScale newScale) noexcept { scale.store ((int) newScale); }
+        void setClockSource (ClockSource newSource) noexcept
+        {
+            clockSource.store ((int) newSource);
+        }
+        ClockSource getClockSource() const noexcept
+        {
+            return (ClockSource) clockSource.load (std::memory_order_relaxed);
+        }
 
         void setHostState (bool hostIsPlaying, double hostBpm) noexcept;
-        void setPlaying (bool shouldPlay) noexcept;
-        bool isPlaying() const noexcept { return playing; }
-        void togglePlaying() noexcept { playing = ! playing; }
+        void setPlaying (bool shouldPlay) noexcept { playing.store (shouldPlay); }
+        bool isPlaying() const noexcept { return playing.load (std::memory_order_relaxed); }
+        void togglePlaying() noexcept { playing.store (! playing.load (std::memory_order_relaxed)); }
 
         /** Manual TRIGGER button: fire the envelopes, keep the step position. */
-        void triggerNow() noexcept { pendingTrigger = true; }
+        void triggerNow() noexcept { pendingTrigger.store (true); }
 
         /** Manual ADVANCE button: move one step and fire. */
-        void advanceNow() noexcept { pendingAdvance = true; }
+        void advanceNow() noexcept { pendingAdvance.store (true); }
 
         void setStep (int index, float pitch, float velocity) noexcept;
         float getPitch (int index) const noexcept;
         float getVelocity (int index) const noexcept;
 
-        int getCurrentStep() const noexcept { return currentStep; }
+        int getCurrentStep() const noexcept
+        {
+            return currentStep.load (std::memory_order_relaxed);
+        }
 
         /** 0..1 progress through the current step, for the UI. */
         float getPhase() const noexcept;
@@ -66,21 +75,22 @@ namespace ReplicantEdgy
         double samplesPerStep = 12000.0;
         double samplesIntoStep = 0.0;
 
-        float tempoBpm = 120.0f;
+        std::atomic<float> tempoBpm { 120.0f };
         double hostBpm = 0.0;
         bool hostPlaying = false;
-        ClockScale scale = ClockScale::Div16;
-        ClockSource clockSource = ClockSource::Internal;
+        std::atomic<int> scale { (int) ClockScale::Div16 };
+        std::atomic<int> clockSource { (int) ClockSource::Internal };
 
-        bool playing = false;
+        std::atomic<bool> playing { false };
         bool needsInitialTrigger = true;
+        bool transportWasRunning = false;
         bool playGateHigh = false;
         bool lastAdvClock = false;
 
-        bool pendingTrigger = false;
-        bool pendingAdvance = false;
+        std::atomic<bool> pendingTrigger { false };
+        std::atomic<bool> pendingAdvance { false };
 
-        int currentStep = 0;
+        std::atomic<int> currentStep { 0 };
 
         // Written by the editor/preset loader, read by the audio thread. Plain
         // atomics keep the step knobs safe to drag while the sequence plays.

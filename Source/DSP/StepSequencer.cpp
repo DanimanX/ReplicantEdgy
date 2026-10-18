@@ -17,37 +17,27 @@ namespace ReplicantEdgy
         }
 
         samplesIntoStep = 0.0;
-        currentStep = 0;
-        playing = false;
+        currentStep.store (0);
+        playing.store (false);
         needsInitialTrigger = true;
+        transportWasRunning = false;
         playGateHigh = false;
         lastAdvClock = false;
-        pendingTrigger = false;
-        pendingAdvance = false;
-        samplesPerStep = sampleRate * 60.0 / juce::jmax (20.0f, tempoBpm)
-                         * scaleToBeats (scale);
+        pendingTrigger.store (false);
+        pendingAdvance.store (false);
+        samplesPerStep = sampleRate * 60.0 / juce::jmax (20.0f, tempoBpm.load())
+                         * scaleToBeats ((ClockScale) scale.load());
     }
 
     void StepSequencer::setTempo (float bpm) noexcept
     {
-        tempoBpm = juce::jlimit (20.0f, 300.0f, bpm);
+        tempoBpm.store (juce::jlimit (20.0f, 300.0f, bpm));
     }
 
     void StepSequencer::setHostState (bool hostIsPlaying, double hostBpmValue) noexcept
     {
         hostPlaying = hostIsPlaying;
         hostBpm = hostBpmValue;
-    }
-
-    void StepSequencer::setPlaying (bool shouldPlay) noexcept
-    {
-        if (shouldPlay && ! playing)
-        {
-            samplesIntoStep = 0.0;
-            needsInitialTrigger = true;
-        }
-
-        playing = shouldPlay;
     }
 
     void StepSequencer::setStep (int index, float pitchValue, float velocityValue) noexcept
@@ -79,7 +69,7 @@ namespace ReplicantEdgy
 
     void StepSequencer::advance() noexcept
     {
-        currentStep = (currentStep + 1) % numSteps;
+        currentStep.store ((currentStep.load() + 1) % numSteps);
         samplesIntoStep = 0.0;
     }
 
@@ -89,28 +79,18 @@ namespace ReplicantEdgy
 
         // A gate on PLAY/STOP latches the transport, like holding the button.
         const bool gateHigh = playGate > 0.5f;
+
         if (gateHigh != playGateHigh)
         {
             playGateHigh = gateHigh;
-
-            if (gateHigh && ! playing)
-            {
-                samplesIntoStep = 0.0;
-                needsInitialTrigger = true;
-            }
-
-            playing = gateHigh;
+            playing.store (gateHigh);
         }
 
-        if (pendingTrigger)
-        {
-            pendingTrigger = false;
+        if (pendingTrigger.exchange (false))
             event.triggered = true;
-        }
 
-        if (pendingAdvance)
+        if (pendingAdvance.exchange (false))
         {
-            pendingAdvance = false;
             advance();
             event.advanced = true;
             event.triggered = true;
@@ -126,19 +106,31 @@ namespace ReplicantEdgy
         }
         lastAdvClock = advHigh;
 
-        const bool followsHost = clockSource == ClockSource::Midi;
-        const bool runs = followsHost ? (playing && hostPlaying) : playing;
+        const auto source = (ClockSource) clockSource.load();
+        const bool followsHost = source == ClockSource::Midi;
+        const bool isPlayingNow = playing.load();
+        const bool runs = followsHost ? (isPlayingNow && hostPlaying) : isPlayingNow;
+        const auto currentScale = (ClockScale) scale.load();
 
-        if (! runs || clockSource == ClockSource::External)
+        // Restart from step 0 on every rising edge of the transport.
+        if (runs && ! transportWasRunning)
+        {
+            samplesIntoStep = 0.0;
+            needsInitialTrigger = true;
+        }
+
+        transportWasRunning = runs;
+
+        if (! runs || source == ClockSource::External)
             return event;
 
-        double bpm = followsHost && hostBpm > 1.0 ? hostBpm : (double) tempoBpm;
+        double bpm = followsHost && hostBpm > 1.0 ? hostBpm : (double) tempoBpm.load();
 
         // TEMPO patch point: +/- one octave of speed at full CV.
         bpm *= std::pow (2.0, (double) juce::jlimit (-1.0f, 1.0f, tempoCv));
 
         samplesPerStep = sampleRate * 60.0 / juce::jmax (10.0, bpm)
-                         * (double) scaleToBeats (scale);
+                         * (double) scaleToBeats (currentScale);
 
         // The transport fires step 0 as soon as it starts, then every step
         // boundary lands exactly on the computed sample (6000 at 120 BPM 1/16).
@@ -151,7 +143,7 @@ namespace ReplicantEdgy
         if (samplesIntoStep >= samplesPerStep)
         {
             samplesIntoStep -= samplesPerStep;
-            currentStep = (currentStep + 1) % numSteps;
+            currentStep.store ((currentStep.load() + 1) % numSteps);
             event.advanced = true;
             event.triggered = true;
         }
