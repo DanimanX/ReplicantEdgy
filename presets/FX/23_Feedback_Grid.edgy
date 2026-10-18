@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<PRESET name="Feedback Grid" category="FX">
+  <PARAMETERS clock_source="0.0" cutoff="600.0" eg_decay="0.300000011920929"
+              fm_amt="0.0" hard_sync="0.0" noise_colour="0.0" noise_level="0.0"
+              noise_vcf_mod="0.0" osc1_env="0.1000000014901161" osc1_freq="0.3799999952316284"
+              osc1_level="0.8500000238418579" osc1_shape="0.0" osc2_env="0.0"
+              osc2_freq="0.5" osc2_level="0.699999988079071" osc2_shape="0.0"
+              resonance="0.8500000238418579" scale="1.0" seq_pitch_mod="0.550000011920929"
+              seq_pitch_target="2.0" step1_pitch="0.0" step1_vel="0.8500000238418579"
+              step2_pitch="0.0" step2_vel="0.6000000238418579" step3_pitch="0.2000000029802322"
+              step3_vel="0.75" step4_pitch="0.0" step4_vel="0.550000011920929"
+              step5_pitch="0.0" step5_vel="0.8500000238418579" step6_pitch="0.0"
+              step6_vel="0.6000000238418579" step7_pitch="0.2000000029802322"
+              step7_vel="0.75" step8_pitch="0.0" step8_vel="0.550000011920929"
+              tempo="126.0" vca_decay="0.449999988079071" vca_mode="0.0" vcf_decay="0.4000000059604645"
+              vcf_env="0.300000011920929" vcf_mode="0.0" volume="-8.0"/>
+  <SEQUENCE>
+    <STEP index="0" pitch="0.0" velocity="0.8500000238418579"/>
+    <STEP index="1" pitch="0.0" velocity="0.6000000238418579"/>
+    <STEP index="2" pitch="0.2000000029802322" velocity="0.75"/>
+    <STEP index="3" pitch="0.0" velocity="0.550000011920929"/>
+    <STEP index="4" pitch="0.0" velocity="0.8500000238418579"/>
+    <STEP index="5" pitch="0.0" velocity="0.6000000238418579"/>
+    <STEP index="6" pitch="0.2000000029802322" velocity="0.75"/>
+    <STEP index="7" pitch="0.0" velocity="0.550000011920929"/>
+  </SEQUENCE>
+  <PATCH>
+    <CABLE source="22" destination="8" colour="7"/>
+  </PATCH>
+</PRESET>

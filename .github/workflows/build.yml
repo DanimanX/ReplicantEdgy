@@ -1,0 +1,206 @@
+name: Build ReplicantEdgy Multiplatform (macOS, Linux, Windows)
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            cmake_generator: "Xcode"
+            artifact_name: "ReplicantEdgy-macOS-Universal"
+
+          - os: ubuntu-22.04
+            platform: linux
+            cmake_generator: "Unix Makefiles"
+            artifact_name: "ReplicantEdgy-Linux-x86_64"
+
+          - os: windows-latest
+            platform: windows
+            cmake_generator: "Ninja"
+            artifact_name: "ReplicantEdgy-Windows-x64"
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Linux Audio & GUI Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            ladspa-sdk \
+            libcurl4-openssl-dev \
+            libfreetype6-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            mesa-common-dev \
+            libgl1-mesa-dev \
+            libgtk-3-dev \
+            xvfb
+
+      - name: Configure CMake
+        run: |
+          EXTRA_FLAGS=""
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            EXTRA_FLAGS="-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+          fi
+          cmake -B build -G "${{ matrix.cmake_generator }}" -DCMAKE_BUILD_TYPE=Release $EXTRA_FLAGS
+
+      - name: Build Targets
+        run: cmake --build build --config Release --parallel
+
+      - name: Run Regression Suite
+        if: runner.os == 'Linux'
+        run: |
+          cmake --build build --config Release --target run_tests --parallel
+          xvfb-run -a ./build/run_tests
+
+      - name: Verify Preset Examples
+        if: runner.os == 'Linux'
+        run: |
+          cmake --build build --config Release --target generate_presets --parallel
+          ./build/generate_presets
+          if [ -n "$(git status --porcelain -- presets)" ]; then
+            echo "::error::presets/ is out of date. Run generate_presets and commit the result."
+            git status --porcelain -- presets
+            exit 1
+          fi
+
+      - name: Collect & Package Artifacts
+        run: |
+          mkdir -p package-staging
+
+          find build -type d -name "ReplicantEdgy.vst3" -exec cp -R {} package-staging/ \; || true
+          find build -type d -name "ReplicantEdgy.component" -exec cp -R {} package-staging/ \; || true
+          find build -type d -name "ReplicantEdgy.app" -exec cp -R {} package-staging/ \; || true
+          find build -type f -name "ReplicantEdgy.exe" -exec cp {} package-staging/ \; || true
+
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            find build -type f -executable -name "ReplicantEdgy" ! -name "*.so" ! -name "*.o" ! -path "*/CMakeFiles/*" -exec cp {} package-staging/ \; || true
+          fi
+
+          mkdir -p release-zip
+          cd package-staging
+          zip -r ../release-zip/${{ matrix.artifact_name }}.zip . || powershell -Command "Compress-Archive -Path * -DestinationPath ../release-zip/${{ matrix.artifact_name }}.zip -Force"
+          cd ..
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release-zip/*.zip
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Release Version
+        id: versioning
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+            echo "Triggered by tag push -> releasing ${RELEASE_TAG}"
+          else
+            git fetch --tags --force
+
+            LATEST_TAG=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+            LATEST_TAG=${LATEST_TAG:-v1.0.0}
+            echo "Highest existing version tag: ${LATEST_TAG}"
+
+            VERSION="${LATEST_TAG#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION}"
+            RELEASE_TAG="v${MAJOR}.${MINOR}.$((10#${PATCH} + 1))"
+
+            if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+              echo "::error::Tag ${RELEASE_TAG} already exists. Refusing to overwrite the published release for it."
+              exit 1
+            fi
+          fi
+
+          echo "tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> "${GITHUB_ENV}"
+          echo "Release tag will be: ${RELEASE_TAG}"
+
+      - name: Download all Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded-artifacts
+
+      - name: Prepare Release Files
+        run: |
+          mkdir -p release-assets
+          find downloaded-artifacts -type f -name "*.zip" -exec cp {} release-assets/ \;
+          ls -la release-assets
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.versioning.outputs.tag }}
+          name: "Replicant Edge ${{ steps.versioning.outputs.tag }} - Multiplatform Release"
+          body: |
+            ## 🎛️ Replicant Edge - Cyberpunk Semi-Modular Percussion Synthesizer (${{ steps.versioning.outputs.tag }})
+            **Two analog voices, a 24-point patch bay and a preset archive, behind a neon panel**
+
+            ### 📦 Ready-to-use binaries
+            * **macOS Universal:** VST3, AU and Standalone (Apple Silicon + Intel)
+            * **Linux x86_64:** VST3 and Standalone
+            * **Windows x64:** VST3 and Standalone
+
+            ### 🔌 Highlights
+            * Two VCOs (triangle/square and saw/square) with hard sync and 1-2 FM.
+            * Four-pole ladder filter switchable LP/HP, noise, three decay envelopes.
+            * 24-point patch bay: drag output-to-input cables, feedback allowed.
+            * 8-step sequencer with pitch + velocity, internal / MIDI / external clock.
+            * 26 factory presets plus user save, delete and `.edgy` import/export.
+            * Three cyberpunk skins: Neon Magenta, Toxic Lime and Chrome Blue.
+          draft: false
+          prerelease: false
+          files: release-assets/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
