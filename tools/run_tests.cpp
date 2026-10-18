@@ -10,6 +10,7 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "GUI/TempoDisplay.h"
 #include "DSP/StepSequencer.h"
 #include "DSP/SynthEngine.h"
 #include "Presets/PresetManager.h"
@@ -713,6 +714,269 @@ namespace
     }
 
     //==========================================================================
+    struct StepProbe
+    {
+        float peak = 0.0f;
+        int zeroCrossings = 0;
+        bool finite = true;
+    };
+
+    /** Renders one step of the sequencer with the given pitch and velocity.
+        The patch is stripped down to VCO 1 through an open filter so the pitch
+        can be counted reliably. */
+    StepProbe renderSingleStep (float pitchNorm, float velocity, int samples = 21600)
+    {
+        using namespace ReplicantEdgy;
+
+        ReplicantEdgyAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+
+        processor.setParameterValue (ParamID::osc1Level, 1.0f);
+        processor.setParameterValue (ParamID::osc2Level, 0.0f);
+        processor.setParameterValue (ParamID::noiseLevel, 0.0f);
+        processor.setParameterValue (ParamID::osc1Env, 0.0f);
+        processor.setParameterValue (ParamID::osc2Env, 0.0f);
+        processor.setParameterValue (ParamID::fmAmount, 0.0f);
+        processor.setParameterValue (ParamID::hardSync, 0.0f);
+        processor.setParameterValue (ParamID::cutoff, 14000.0f);
+        processor.setParameterValue (ParamID::resonance, 0.0f);
+        processor.setParameterValue (ParamID::vcfEnv, 0.0f);
+        processor.setParameterValue (ParamID::noiseVcfMod, 0.0f);
+        processor.setParameterValue (ParamID::egDecay, 3.0f);
+        processor.setParameterValue (ParamID::vcfDecay, 3.0f);
+        processor.setParameterValue (ParamID::vcaDecay, 3.0f);
+        processor.setParameterValue (ParamID::vcaMode, 0.0f);
+        processor.setParameterValue (ParamID::volume, 0.0f);
+        processor.setParameterValue (ParamID::seqPitchMod, 1.0f);
+        processor.setParameterValue (ParamID::seqPitchTarget, 2.0f);
+        processor.setParameterValue (ParamID::tempo, 60.0f);
+        processor.setParameterValue (ParamID::scale, 3.0f);   // 1/4 = one step per second
+
+        for (int i = 0; i < StepSequencer::numSteps; ++i)
+        {
+            processor.setParameterValue (ParamID::stepPitch (i), pitchNorm);
+            processor.setParameterValue (ParamID::stepVelocity (i), velocity);
+        }
+
+        processor.getEngine().getSequencer().setPlaying (true);
+
+        StepProbe probe;
+        std::vector<float> audio;
+        audio.reserve ((size_t) samples);
+
+        while ((int) audio.size() < samples)
+        {
+            juce::AudioBuffer<float> buffer (2, 256);
+            juce::MidiBuffer midi;
+            processor.processBlock (buffer, midi);
+
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                audio.push_back (buffer.getSample (0, i));
+        }
+
+        float previous = 0.0f;
+
+        for (int i = 0; i < (int) audio.size(); ++i)
+        {
+            const float value = audio[(size_t) i];
+            probe.finite = probe.finite && std::isfinite (value);
+            probe.peak = juce::jmax (probe.peak, std::abs (value));
+
+            // Skip the attack, then count rising zero crossings.
+            if (i > 2000 && previous <= 0.0f && value > 0.0f)
+                ++probe.zeroCrossings;
+
+            previous = value;
+        }
+
+        return probe;
+    }
+
+    void testStepKnobs()
+    {
+        section ("Step knobs");
+
+        using namespace ReplicantEdgy;
+
+        ReplicantEdgyAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        processor.applyPreset (0);
+
+        // The knobs are APVTS parameters; a block must publish them to the
+        // sequencer, otherwise the whole row is decorative.
+        processor.setParameterValue (ParamID::stepPitch (0), 0.75f);
+        processor.setParameterValue (ParamID::stepVelocity (0), 0.25f);
+
+        juce::AudioBuffer<float> buffer (2, 256);
+        juce::MidiBuffer midi;
+        processor.processBlock (buffer, midi);
+
+        check (std::abs (processor.getEngine().getSequencer().getPitch (0) - 0.75f) < 1.0e-3f,
+               "step pitch knobs reach the sequencer");
+        check (std::abs (processor.getEngine().getSequencer().getVelocity (0) - 0.25f) < 1.0e-3f,
+               "step velocity knobs reach the sequencer");
+
+        // And they are audible: +12 semitones nearly doubles the pitch.
+        const auto low = renderSingleStep (0.0f, 0.9f);
+        const auto high = renderSingleStep (1.0f, 0.9f);
+
+        check (low.finite && high.finite, "step renders stay finite");
+        check (low.peak > 0.01f, "a step with pitch 0 makes sound");
+
+        const float ratio = (float) high.zeroCrossings / juce::jmax (1.0f, (float) low.zeroCrossings);
+        check (ratio > 1.7f && ratio < 2.3f,
+               "pitch +12 semitones doubles the oscillator frequency (ratio "
+                   + juce::String (ratio, 2) + ")");
+
+        // Velocity drives the VCA level.
+        const auto loud = renderSingleStep (0.0f, 1.0f);
+        const auto quiet = renderSingleStep (0.0f, 0.20f);
+
+        check (loud.peak > quiet.peak * 2.0f,
+               "step velocity changes the level (loud " + juce::String (loud.peak, 3)
+                   + " vs quiet " + juce::String (quiet.peak, 3) + ")");
+
+        // The parameter tree stays the source of truth after a preset load.
+        processor.applyPreset (0);
+        processor.processBlock (buffer, midi);
+
+        const auto preset = processor.getPresetManager().getPreset (0);
+        check (std::abs (processor.getEngine().getSequencer().getPitch (2)
+                             - preset.pitch[2]) < 1.0e-3f,
+               "loading a preset still restores every step value");
+    }
+
+    //==========================================================================
+    void testTempoDisplay()
+    {
+        section ("Tempo display");
+
+        using namespace ReplicantEdgy;
+
+        ReplicantEdgyAudioProcessor processor;   // keep it alive: the display uses its parameter
+        auto* tempoParameter = processor.apvts.getParameter (ParamID::tempo);
+        check (tempoParameter != nullptr, "the tempo parameter exists");
+
+        if (tempoParameter == nullptr)
+            return;
+
+        TempoDisplay display (*tempoParameter);
+        display.setSize (110, 54);
+
+        display.setValue (143.5f);
+        check (std::abs (processor.apvts.getRawParameterValue (ParamID::tempo)->load() - 143.5f) < 0.01f,
+               "typing a tempo writes the parameter");
+
+        display.setValue (9999.0f);
+        check (std::abs (processor.apvts.getRawParameterValue (ParamID::tempo)->load() - 300.0f) < 0.01f,
+               "out-of-range tempos clamp to the top of the range");
+        check (std::abs (display.getValue() - 300.0f) < 0.01f,
+               "the display shows the clamped value");
+
+        // Drive the parameter itself, not the display, so the attachment round
+        // trip is what is actually being tested.
+        tempoParameter->setValueNotifyingHost (tempoParameter->convertTo0to1 (72.0f));
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
+        check (std::abs (display.getValue() - 72.0f) < 0.01f,
+               "the display follows external tempo changes");
+    }
+
+    //==========================================================================
+    void testRandomPatch()
+    {
+        section ("Random patch");
+
+        using namespace ReplicantEdgy;
+
+        ReplicantEdgyAudioProcessor processor;
+        processor.prepareToPlay (48000.0, 256);
+        processor.applyPreset (0);
+
+        const auto beforeCutoff = processor.apvts.getRawParameterValue (ParamID::cutoff)->load();
+        const auto beforePitch = processor.apvts.getRawParameterValue (ParamID::stepPitch (3))->load();
+
+        processor.randomisePatch();
+
+        const auto afterCutoff = processor.apvts.getRawParameterValue (ParamID::cutoff)->load();
+        const auto afterPitch = processor.apvts.getRawParameterValue (ParamID::stepPitch (3))->load();
+
+        check (std::abs (afterPitch - beforePitch) > 1.0e-3f,
+               "RANDOM writes a new step line");
+        check (std::abs (afterCutoff - beforeCutoff) > 0.5f,
+               "RANDOM moves the filter");
+        check (processor.getEngine().getPatchBay().getNumCables() <= 2,
+               "RANDOM patches at most two cables");
+        check (processor.getCurrentPresetName().contains ("Mutation"),
+               "RANDOM names the mutation");
+
+        juce::AudioBuffer<float> buffer (2, 256);
+        juce::MidiBuffer midi;
+        processor.processBlock (buffer, midi);
+
+        check (std::abs (processor.getEngine().getSequencer().getPitch (3) - afterPitch) < 1.0e-3f,
+               "the random line reaches the sequencer");
+
+        // E1: a SAVE with no audio block in between must capture the knobs, not
+        // the one-block-old sequencer cache.
+        processor.setParameterValue (ParamID::stepPitch (1), 0.66f);
+
+        const auto captured = processor.captureCurrentPreset ("Stale Check", "User");
+        check (std::abs (captured.get (ParamID::stepPitch (1)) - 0.66f) < 1.0e-3f,
+               "capture reads step pitch from the parameter, not a stale cache");
+        check (std::abs (captured.pitch[1] - 0.66f) < 1.0e-3f,
+               "the captured step array matches the parameter");
+
+        // Repeated mutation must never leave the engine in a silent or
+        // unstable state (cables can sum, parameters can land on extremes).
+        bool allFinite = true;
+        bool allAudible = true;
+        bool cablesValid = true;
+
+        for (int i = 0; i < 12; ++i)
+        {
+            processor.randomisePatch();
+
+            // Restart the transport so step 0 fires immediately: at the slowest
+            // clock division the next step can be 0.6 s away, and a short VCA
+            // decay would leave a silent window that is not a silent patch.
+            processor.getEngine().getSequencer().setPlaying (false);
+            juce::AudioBuffer<float> silence (2, 256);
+            juce::MidiBuffer noEvents;
+            processor.processBlock (silence, noEvents);
+            processor.getEngine().getSequencer().setPlaying (true);
+
+            float peak = 0.0f;
+
+            for (int block = 0; block < 48; ++block)
+            {
+                juce::AudioBuffer<float> audio (2, 256);
+                juce::MidiBuffer events;
+                processor.processBlock (audio, events);
+
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int n = 0; n < audio.getNumSamples(); ++n)
+                    {
+                        const float value = audio.getSample (ch, n);
+                        allFinite = allFinite && std::isfinite (value);
+                        peak = juce::jmax (peak, std::abs (value));
+                    }
+            }
+
+            allAudible = allAudible && peak > 0.001f && peak < 4.0f;
+
+            for (const auto& cable : processor.getEngine().getPatchBay().getCables())
+                cablesValid = cablesValid && jackIsOutput (cable.source)
+                              && jackIsInput (cable.destination);
+        }
+
+        check (allFinite, "repeated mutations stay finite");
+        check (allAudible, "repeated mutations always produce a playable patch");
+        check (cablesValid, "random cables are always output -> input");
+
+        processor.getEngine().getSequencer().setPlaying (false);
+    }
+
+    //==========================================================================
     void testProcessor()
     {
         section ("Plugin processor");
@@ -895,6 +1159,9 @@ int main()
     testEnvelope();
     testSequencer();
     testPatchBay();
+    testStepKnobs();
+    testTempoDisplay();
+    testRandomPatch();
     testEngine();
     testPresetManager();
     testProcessor();

@@ -42,13 +42,14 @@ namespace ReplicantEdgy::Layout
     inline juce::Rectangle<float> presetNextButton()  { return { 762.0f, 20.0f, 34.0f, 30.0f }; }
     inline juce::Rectangle<float> saveButton()        { return { 806.0f, 20.0f, 82.0f, 30.0f }; }
     inline juce::Rectangle<float> presetsButton()     { return { 894.0f, 20.0f, 98.0f, 30.0f }; }
-    inline juce::Rectangle<float> themeBox()          { return { 1002.0f, 20.0f, 150.0f, 30.0f }; }
-    inline juce::Rectangle<float> cableCountBox()     { return { 1160.0f, 20.0f, 104.0f, 30.0f }; }
+    inline juce::Rectangle<float> randomButton()      { return { 998.0f, 20.0f, 98.0f, 30.0f }; }
+    inline juce::Rectangle<float> themeBox()          { return { 1104.0f, 20.0f, 164.0f, 30.0f }; }
 
     // Sequential controls.
-    inline juce::Rectangle<float> tempoKnob()     { return { 40.0f, 612.0f, 76.0f, 76.0f }; }
+    inline juce::Rectangle<float> tempoKnob()     { return { 42.0f, 608.0f, 72.0f, 72.0f }; }
     inline juce::Rectangle<float> clockSwitch()   { return { 138.0f, 618.0f, 34.0f, 62.0f }; }
-    inline juce::Rectangle<float> scaleKnob()     { return { 190.0f, 616.0f, 68.0f, 68.0f }; }
+    inline juce::Rectangle<float> scaleKnob()     { return { 190.0f, 612.0f, 64.0f, 64.0f }; }
+    inline juce::Rectangle<float> tempoDisplay()  { return { 26.0f, 688.0f, 110.0f, 54.0f }; }
     inline juce::Rectangle<float> triggerButton() { return { 288.0f, 620.0f, 64.0f, 46.0f }; }
     inline juce::Rectangle<float> playButton()    { return { 360.0f, 620.0f, 64.0f, 46.0f }; }
     inline juce::Rectangle<float> advanceButton() { return { 432.0f, 620.0f, 64.0f, 46.0f }; }

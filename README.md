@@ -79,7 +79,11 @@ cable runs and a live signal analyser. Three skins ship in the plugin.
 * Cables glow with the signal they carry and are stored with the preset.
 
 ### 🥁 8-Step Sequencer
-* **Pitch and velocity per step**, exactly like the hardware row.
+* **Pitch and velocity per step**, exactly like the hardware row. Both knobs are
+  live: pitch bends the VCOs up to ±12 semitones through `SEQ PITCH MOD`, and
+  velocity drives the VCA level and the VCF envelope.
+* **Red LED tempo readout** under the TEMPO knob: a seven-segment display on a
+  graticule grid. Click it to type an exact BPM, or scroll to nudge it by 0.5.
 * **TRIGGER**, **PLAY/STOP** and **ADVANCE** buttons.
 * Clock **1/32 … 1/4 plus triplets**, internal tempo, **host/MIDI sync** or
   **external clock** through the `ADV/CLOCK` jack.
@@ -91,8 +95,9 @@ cable runs and a live signal analyser. Three skins ship in the plugin.
 * **Save your own patches** by name; they are stored as `.edgy` files in the
   user preset folder and appear in the archive instantly.
 * **IMPORT / EXPORT** share a single patch as a human-readable `.edgy` file.
-* **RANDOM** mutates the current patch (parameters, steps and cables) for
-  instant cyberpunk variation.
+* **RANDOM** (in the header, next to PRESETS) builds a complete cyberpunk patch
+  in one click: voice archetype, filter, envelopes, a fresh eight-step line and
+  a couple of patch cables. The archive has the same button as **MUTATED**.
 * Presets are also exposed as **host programs**, so the DAW can browse them.
 
 ### 🎨 Three Cyberpunk Skins
@@ -167,6 +172,8 @@ through `SEQ PITCH MOD`) and a **velocity** knob (VCA and VCF envelope level).
   <img src="assets/replicantedgy_drawer.png" alt="Preset archive drawer: category filters, factory and user presets, save, delete, import and export" width="800">
 </p>
 
+* **RANDOM** builds a new cyberpunk patch (voice, line and cables) straight from
+  the header, and `MUTATED` in this drawer does the same.
 * **26 factory patches:** `Neon Pulse`, `Chrome Rain`, `Razor Wire`,
   `Voltage Drop`, `Toxic Bloom`, `Acid Protocol`, `Sub Level`, `Chrome Sub`,
   `Dark Current`, `Neon Lead`, `Ghost Wire`, `Laser Grid`, `Chrome Solo`,
@@ -230,10 +237,11 @@ cmake --build build --parallel
 
 ### Tests
 
-The headless suite (**100 checks**) covers the oscillators, noise, ladder
-filter, envelopes, the sequencer clock (internal, host and external), the patch
-bay routing and cable rules, the full engine, the preset manager (factory,
-user, export/import), the plugin state round-trip and the editor/drawer:
+The headless suite (**122 checks**) covers the oscillators, noise, ladder
+filter, envelopes, the sequencer clock (internal, host and external), the step
+pitch/velocity wiring, the tempo readout, the patch bay routing and cable
+rules, the full engine, the random mutation, the preset manager (factory, user,
+export/import), the plugin state round-trip and the editor/drawer:
 
 ```bash
 cmake --build build --target run_tests
@@ -244,7 +252,8 @@ xvfb-run -a ./build/run_tests     # Linux, without a display
 ### Screenshots
 
 `generate_snapshot` renders the editor off-screen. It takes an output path, a
-skin index, a drawer flag and a preset index:
+skin index, a drawer flag, a preset index and an optional tempo (useful to
+review the LED readout):
 
 ```bash
 cmake --build build --target generate_snapshot
@@ -253,6 +262,7 @@ cmake --build build --target generate_snapshot
 ./build/generate_snapshot assets/replicantedgy_ui_lime.png    1 0 24
 ./build/generate_snapshot assets/replicantedgy_ui_blue.png    2 0 24
 ./build/generate_snapshot assets/replicantedgy_drawer.png     0 1 24
+./build/generate_snapshot /tmp/tempo.png 0 0 24 143.5         # LED readout at 143.5 BPM
 ```
 
 ### Promo video

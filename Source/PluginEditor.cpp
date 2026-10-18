@@ -97,16 +97,32 @@ ReplicantEdgyAudioProcessorEditor::ReplicantEdgyAudioProcessorEditor (ReplicantE
     addAndMakeVisible (nextButton);
     addAndMakeVisible (saveButton);
     addAndMakeVisible (presetsButton);
+    addAndMakeVisible (randomButton);
 
     prevButton.setTooltip ("Previous preset");
     nextButton.setTooltip ("Next preset");
     saveButton.setTooltip ("Open the preset archive to save this patch");
     presetsButton.setTooltip ("Open the preset archive");
+    randomButton.setTooltip ("Generate a random cyberpunk patch");
+    randomButton.getProperties().set ("cyberRandom", true);
 
     prevButton.onClick = [this] { processor.previousPreset(); refreshFromProcessor(); };
     nextButton.onClick = [this] { processor.nextPreset(); refreshFromProcessor(); };
     saveButton.onClick = [this] { setPresetDrawerOpen (true); presetDrawer->refresh(); };
     presetsButton.onClick = [this] { setPresetDrawerOpen (! drawerOpen); };
+    randomButton.onClick = [this]
+    {
+        processor.randomisePatch();
+        refreshFromProcessor();
+        repaint();
+    };
+
+    // Red LED tempo readout under the TEMPO knob.
+    if (auto* tempoParameter = processor.apvts.getParameter (ParamID::tempo))
+    {
+        tempoDisplay = std::make_unique<TempoDisplay> (*tempoParameter);
+        addAndMakeVisible (*tempoDisplay);
+    }
 
     // ---- drawer -----------------------------------------------------------
     presetDrawer = std::make_unique<PresetDrawer> (processor);
@@ -173,8 +189,11 @@ void ReplicantEdgyAudioProcessorEditor::applyBounds()
     vcfEnv.slider.setBounds (772, 426, 56, 56);
     noiseVcfMod.slider.setBounds (840, 426, 52, 52);
 
-    tempoKnob.slider.setBounds (40, 612, 76, 76);
-    scaleKnob.slider.setBounds (188, 616, 68, 68);
+    tempoKnob.slider.setBounds (42, 608, 72, 72);
+    scaleKnob.slider.setBounds (190, 612, 64, 64);
+
+    if (tempoDisplay != nullptr)
+        tempoDisplay->setBounds (Layout::tempoDisplay().toNearestInt());
 
     for (int i = 0; i < StepSequencer::numSteps; ++i)
     {
@@ -190,6 +209,7 @@ void ReplicantEdgyAudioProcessorEditor::applyBounds()
     nextButton.setBounds (Layout::presetNextButton().toNearestInt());
     saveButton.setBounds (Layout::saveButton().toNearestInt());
     presetsButton.setBounds (Layout::presetsButton().toNearestInt());
+    randomButton.setBounds (Layout::randomButton().toNearestInt());
     themeBox.setBounds (Layout::themeBox().toNearestInt());
 }
 
@@ -279,6 +299,9 @@ void ReplicantEdgyAudioProcessorEditor::refreshFromProcessor()
 
     if (presetDrawer != nullptr && drawerProgress > 0.0f)
         presetDrawer->refresh();
+
+    if (tempoDisplay != nullptr)
+        tempoDisplay->refresh();
 
     repaint();
 }
@@ -392,19 +415,6 @@ void ReplicantEdgyAudioProcessorEditor::drawHeader (juce::Graphics& g)
     g.drawFittedText (processor.getCurrentPresetName(),
                       nameBox.reduced (8.0f, 4.0f).withTrimmedTop (8.0f).toNearestInt(),
                       juce::Justification::centredLeft, 1, 0.85f);
-
-    // Cable counter.
-    auto countBox = Layout::cableCountBox();
-    g.setColour (t.scopeBackground);
-    g.fillRoundedRectangle (countBox, 3.0f);
-    g.setColour (t.accentAlt.withAlpha (0.45f));
-    g.drawRoundedRectangle (countBox, 3.0f, 1.0f);
-
-    g.setColour (t.accentAlt);
-    g.setFont (uiFont (13.0f, juce::Font::bold));
-    const int cableCount = processor.getEngine().getPatchBay().getNumCables();
-    g.drawText (juce::String (cableCount) + (cableCount == 1 ? " CABLE" : " CABLES"),
-                countBox, juce::Justification::centred);
 }
 
 void ReplicantEdgyAudioProcessorEditor::drawPatchBay (juce::Graphics& g)

@@ -36,6 +36,7 @@ MAGENTA_HOT = (255, 170, 210)
 CYAN = (47, 230, 255)
 LIME = (182, 255, 47)
 YELLOW = (255, 210, 63)
+RED_LED = (255, 47, 58)
 WHITE = (238, 232, 244)
 MUTED = (160, 146, 172)
 DARK = (6, 4, 9)
@@ -216,7 +217,8 @@ def build_audio():
     swell = np.zeros(n, dtype=np.float32)
     for start_s, end_s, amp in ((3.0, 6.0, 0.45), (14.0, 18.0, 0.40),
                                 (24.0, 28.0, 0.38), (34.0, 38.0, 0.40),
-                                (44.0, 48.0, 0.38), (60.0, 64.0, 0.55)):
+                                (42.0, 46.0, 0.38), (48.0, 52.0, 0.35),
+                                (54.0, 58.0, 0.40), (61.0, 65.0, 0.55)):
         a = int(start_s * SAMPLE_RATE)
         b = int(end_s * SAMPLE_RATE)
         seg = b - a
@@ -586,9 +588,15 @@ def scene_sequence(frame, t, local):
                 outline=MAGENTA + (230,), width=3)
 
     caption(frame, 80, 60, "03 / SEQUENCER", "EIGHT STEPS. NO MERCY.",
-            "PITCH + VELOCITY PER STEP  ·  TRIGGER / PLAY / ADVANCE  ·  INT / MIDI / EXT")
+            "PITCH + VELOCITY PER STEP  ·  TRIGGER / PLAY / ADVANCE  ·  RED LED TEMPO READOUT")
 
-    for i, line in enumerate(("CLOCK DIVISIONS FROM 1/32 TO 1/4,", "WITH TRIPLETS.",
+    # Highlight the tempo readout inside the crop.
+    tx = rect[0] + 26 * scale
+    ty = rect[1] + (688 - 560) * scale
+    d.rectangle([tx - 4, ty - 4, tx + 110 * scale + 4, ty + 54 * scale + 4],
+                outline=RED_LED + (220,), width=3)
+
+    for i, line in enumerate(("PITCH AND VELOCITY REALLY MOVE THE VOICE.", "CLICK THE RED DISPLAY TO TYPE A TEMPO.",
                               "ADV/CLOCK PATCH POINT FOR EXTERNAL GEAR.")):
         d.text((80, 700 + i * 36), line, font=font(FONT_MONO_REG, 23), fill=MUTED + (235,))
 
@@ -606,6 +614,46 @@ def scene_presets(frame, t, local):
     for i, line in enumerate(("SAVE THE PATCH YOU JUST FOUND.", "NAME IT. KEEP IT.",
                               "TRADE IT AS A SINGLE .EDGY FILE.")):
         d.text((80, 818 + i * 36), line, font=font(FONT_MONO_REG, 23), fill=MUTED + (235,))
+
+
+def scene_mutation(frame, t, local):
+    # Header strip with the RANDOM button, blown up.
+    crop = PANEL_MAGENTA.crop((440, 8, 1280, 62))
+    rect = (120, 300, 1680, 150)
+    draw_ui(frame, crop, rect, MAGENTA, scan_t=local * 1.3)
+
+    # Pulsing ring around the button.
+    bx = rect[0] + (998 - 440) * (rect[2] / 840.0)
+    by = rect[1] + (20 - 8) * (rect[3] / 54.0)
+    bw = 98 * (rect[2] / 840.0)
+    bh = 30 * (rect[3] / 54.0)
+    pulse = 0.5 + 0.5 * math.sin(local * 6.0)
+
+    d = ImageDraw.Draw(frame)
+    for i in range(3):
+        pad = 6 + i * 7 + pulse * 5
+        d.rounded_rectangle([bx - pad, by - pad, bx + bw + pad, by + bh + pad],
+                            radius=6, outline=MAGENTA + (int(150 - i * 45),), width=2)
+
+    caption(frame, 120, 60, "05 / MUTATION ENGINE", "RANDOM. EVERY TIME.",
+            "ONE BUTTON BUILDS A NEW PATCH  ·  VOICE, LINE AND CABLES")
+
+    # Mutating parameter bars.
+    rng = np.random.default_rng(int(local * 6) + 17)
+    labels = ["CUTOFF", "RESONANCE", "VCO 1", "VCO 2", "FM", "DECAY", "NOISE", "DRIVE"]
+    for i, label in enumerate(labels):
+        y = 520 + i * 56
+        d.text((120, y), label, font=font(FONT_MONO, 18), fill=MUTED + (230,))
+        value = float(rng.random())
+        width = int(60 + value * 900)
+        d.rectangle([300, y + 2, 300 + 900, y + 24], outline=MAGENTA + (70,), width=1)
+        d.rectangle([300, y + 2, 300 + width, y + 24],
+                    fill=(MAGENTA if i % 2 == 0 else CYAN) + (215,))
+
+    d.text((1240, 520), "26 FACTORY PATCHES", font=font(FONT_MONO, 20), fill=WHITE + (235,))
+    d.text((1240, 556), "INFINITE MUTATIONS", font=font(FONT_MONO, 20), fill=MAGENTA + (235,))
+    d.text((1240, 600), "SAVE THE ONES", font=font(FONT_MONO_REG, 18), fill=MUTED + (225,))
+    d.text((1240, 626), "YOU LIKE.", font=font(FONT_MONO_REG, 18), fill=MUTED + (225,))
 
 
 def scene_skins(frame, t, local):
@@ -663,7 +711,7 @@ def scene_end(frame, t, local):
                 font(FONT_MONO, 26), CYAN + (240,), 2.5, anchor="ma")
     d.text((W / 2, 684), "VST3   ·   AU   ·   STANDALONE",
            font=font(FONT_MONO_REG, 22), fill=MUTED + (220,), anchor="ma")
-    d.text((W / 2, 726), "24 PATCH POINTS  ·  8-STEP SEQUENCER  ·  PRESET ARCHIVE",
+    d.text((W / 2, 726), "24 PATCH POINTS  ·  8-STEP SEQUENCER  ·  RANDOM MUTATION",
            font=font(FONT_MONO_REG, 20), fill=MAGENTA_HOT + (215,), anchor="ma")
     d.text((W / 2, 786), "github.com/DanimanX/ReplicantEdgy",
            font=font(FONT_MONO_REG, 24), fill=WHITE + (230,), anchor="ma")
@@ -721,14 +769,16 @@ def render_frame(t):
         scene_patch(frame, t, t - 18.0)
     elif t < 38.0:
         scene_sequence(frame, t, t - 28.0)
-    elif t < 48.0:
+    elif t < 46.0:
         scene_presets(frame, t, t - 38.0)
-    elif t < 56.0:
-        scene_skins(frame, t, t - 48.0)
-    elif t < 64.0:
-        scene_features(frame, t, t - 56.0)
+    elif t < 52.0:
+        scene_mutation(frame, t, t - 46.0)
+    elif t < 58.0:
+        scene_skins(frame, t, t - 52.0)
+    elif t < 65.0:
+        scene_features(frame, t, t - 58.0)
     else:
-        scene_end(frame, t, t - 64.0)
+        scene_end(frame, t, t - 65.0)
 
     frame.alpha_composite(SCAN)
     frame.alpha_composite(VIGNETTE)
@@ -743,7 +793,7 @@ def render_frame(t):
         k = max(0.0, (DURATION - t) / 2.0)
         frame = Image.eval(frame, lambda v: int(v * k))
 
-    cuts = (5.0, 11.0, 18.0, 28.0, 38.0, 48.0, 56.0, 64.0)
+    cuts = (5.0, 11.0, 18.0, 28.0, 38.0, 46.0, 52.0, 58.0, 65.0)
     for cut in cuts:
         if 0 <= t - cut < 0.12:
             arr = np.array(frame)

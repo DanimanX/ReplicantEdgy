@@ -167,6 +167,12 @@ void ReplicantEdgyAudioProcessor::cacheParameterPointers()
     pTempo = apvts.getRawParameterValue (tempo);
     pClockSource = apvts.getRawParameterValue (clockSource);
     pScale = apvts.getRawParameterValue (scale);
+
+    for (int i = 0; i < ReplicantEdgy::StepSequencer::numSteps; ++i)
+    {
+        pStepPitch[(size_t) i] = apvts.getRawParameterValue (stepPitch (i));
+        pStepVelocity[(size_t) i] = apvts.getRawParameterValue (stepVelocity (i));
+    }
 }
 
 //==============================================================================
@@ -230,6 +236,19 @@ void ReplicantEdgyAudioProcessor::updateEngineParams()
     params.scale = juce::roundToInt (value (pScale, 1.0f));
 
     engine.setParams (params);
+
+    // The step knobs are ordinary parameters, so they have to be pushed into
+    // the sequencer by hand. Without this the PITCH and VEL knobs moved the
+    // parameter tree but the audio thread kept playing the values the last
+    // preset had installed.
+    auto& sequencer = engine.getSequencer();
+
+    for (int i = 0; i < ReplicantEdgy::StepSequencer::numSteps; ++i)
+    {
+        sequencer.setStep (i,
+                           value (pStepPitch[(size_t) i], 0.0f),
+                           value (pStepVelocity[(size_t) i], 0.65f));
+    }
 }
 
 void ReplicantEdgyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -270,6 +289,17 @@ void ReplicantEdgyAudioProcessor::setParameterValue (const juce::String& paramet
 {
     if (auto* parameter = apvts.getParameter (parameterId))
         parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
+}
+
+void ReplicantEdgyAudioProcessor::setParameterValueAsGesture (const juce::String& parameterId,
+                                                              float plainValue)
+{
+    if (auto* parameter = apvts.getParameter (parameterId))
+    {
+        parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
+        parameter->endChangeGesture();
+    }
 }
 
 void ReplicantEdgyAudioProcessor::applyPreset (int index)
@@ -326,14 +356,21 @@ ReplicantEdgy::Preset ReplicantEdgyAudioProcessor::captureCurrentPreset (const j
             preset.values[id] = value->load();
     }
 
-    const auto& sequencer = engine.getSequencer();
-
+    // The parameters are the source of truth for the step row. Reading the
+    // sequencer here would capture a cache that the audio thread refreshes one
+    // block later, so a SAVE issued while the transport is idle (or before the
+    // next callback) would persist the previous step values over the edit.
     for (int i = 0; i < ReplicantEdgy::StepSequencer::numSteps; ++i)
     {
-        preset.pitch[(size_t) i] = sequencer.getPitch (i);
-        preset.velocity[(size_t) i] = sequencer.getVelocity (i);
-        preset.values[ReplicantEdgy::ParamID::stepPitch (i)] = preset.pitch[(size_t) i];
-        preset.values[ReplicantEdgy::ParamID::stepVelocity (i)] = preset.velocity[(size_t) i];
+        const auto pitchId = ReplicantEdgy::ParamID::stepPitch (i);
+        const auto velocityId = ReplicantEdgy::ParamID::stepVelocity (i);
+
+        const float pitch = preset.values.count (pitchId) > 0 ? preset.values.at (pitchId) : 0.0f;
+        const float velocity = preset.values.count (velocityId) > 0
+                                   ? preset.values.at (velocityId) : 0.65f;
+
+        preset.pitch[(size_t) i] = pitch;
+        preset.velocity[(size_t) i] = velocity;
     }
 
     preset.cables = engine.getPatchBay().getCables();
@@ -352,6 +389,152 @@ int ReplicantEdgyAudioProcessor::saveUserPreset (const juce::String& name)
     }
 
     return index;
+}
+
+void ReplicantEdgyAudioProcessor::randomisePatch()
+{
+    using namespace ReplicantEdgy;
+
+    juce::Random random;
+
+    // The whole mutation is reported as a series of complete gestures, so a DAW
+    // records it in automation as one deliberate action instead of as noise.
+    auto randomise = [this, &random] (const juce::String& id, float low, float high)
+    {
+        setParameterValueAsGesture (id, low + (high - low) * random.nextFloat());
+    };
+
+    // Six cyberpunk archetypes: the mutation always lands somewhere musical
+    // instead of somewhere merely random.
+    struct Archetype
+    {
+        const char* name;
+        float cutoffLow, cutoffHigh;
+        float resLow, resHigh;
+        float vcaDecayLow, vcaDecayHigh;
+        float osc2LevelLow, osc2LevelHigh;
+    };
+
+    static const Archetype archetypes[] =
+    {
+        { "Neon Perc",   180.0f, 1500.0f, 0.45f, 0.90f, 0.12f, 0.35f, 0.15f, 0.60f },
+        { "Chrome Sub",   90.0f,  480.0f, 0.20f, 0.70f, 0.35f, 0.90f, 0.30f, 0.80f },
+        { "Laser Lead",  900.0f, 5200.0f, 0.35f, 0.85f, 0.25f, 0.70f, 0.20f, 0.75f },
+        { "Acid Rain",   240.0f, 1800.0f, 0.55f, 0.95f, 0.18f, 0.50f, 0.10f, 0.55f },
+        { "Ghost Drone",  70.0f,  420.0f, 0.30f, 0.80f, 1.20f, 3.00f, 0.20f, 0.70f },
+        { "Toxic Noise", 400.0f, 4200.0f, 0.30f, 0.85f, 0.15f, 0.60f, 0.00f, 0.35f }
+    };
+
+    const auto& archetype = archetypes[random.nextInt ((int) (sizeof (archetypes)
+                                                              / sizeof (archetypes[0])))];
+
+    randomise (ParamID::osc1Freq, 0.20f, 0.66f);
+    randomise (ParamID::osc2Freq, 0.20f, 0.70f);
+    randomise (ParamID::osc1Env, -0.8f, 0.9f);
+    randomise (ParamID::osc2Env, -0.6f, 0.8f);
+    randomise (ParamID::osc1Level, 0.55f, 1.0f);
+    randomise (ParamID::osc2Level, archetype.osc2LevelLow, archetype.osc2LevelHigh);
+    randomise (ParamID::fmAmount, 0.0f, 0.45f);
+    randomise (ParamID::egDecay, 0.08f, 1.40f);
+
+    // A high-pass patch at 5 kHz on an 80 Hz oscillator is silence, not a
+    // mutation. When HP is chosen, keep the cutoff inside a musical window.
+    const bool highpass = random.nextFloat() < 0.22f;
+    const float cutoffHigh = highpass ? juce::jmin (archetype.cutoffHigh, 1400.0f)
+                                      : archetype.cutoffHigh;
+    const float cutoffLow = highpass ? juce::jmax (archetype.cutoffLow, 180.0f)
+                                     : archetype.cutoffLow;
+
+    randomise (ParamID::cutoff, cutoffLow, juce::jmax (cutoffLow + 1.0f, cutoffHigh));
+    randomise (ParamID::resonance, archetype.resLow, archetype.resHigh);
+    randomise (ParamID::vcfEnv, -0.35f, 0.95f);
+    randomise (ParamID::vcfDecay, 0.10f, 1.60f);
+    const bool noiseArchetype = juce::String (archetype.name) == "Toxic Noise";
+    randomise (ParamID::noiseLevel, noiseArchetype ? 0.45f : 0.0f,
+               noiseArchetype ? 0.95f : 0.22f);
+    randomise (ParamID::noiseVcfMod, 0.0f, 0.70f);
+    randomise (ParamID::vcaDecay, archetype.vcaDecayLow, archetype.vcaDecayHigh);
+    randomise (ParamID::tempo, 96.0f, 148.0f);
+    randomise (ParamID::seqPitchMod, 0.35f, 0.95f);
+
+    // Discrete switches.
+    setParameterValueAsGesture (ParamID::hardSync, random.nextFloat() < 0.35f ? 1.0f : 0.0f);
+    setParameterValueAsGesture (ParamID::osc1Shape, random.nextFloat() < 0.45f ? 1.0f : 0.0f);
+    setParameterValueAsGesture (ParamID::osc2Shape, random.nextFloat() < 0.40f ? 1.0f : 0.0f);
+    setParameterValueAsGesture (ParamID::vcfMode, highpass ? 1.0f : 0.0f);
+    setParameterValueAsGesture (ParamID::noiseColour, random.nextFloat() < 0.5f ? 1.0f : 0.0f);
+    setParameterValueAsGesture (ParamID::vcaMode, random.nextFloat() < 0.70f ? 0.0f : 1.0f);
+    setParameterValueAsGesture (ParamID::seqPitchTarget, (float) random.nextInt (3));
+    setParameterValueAsGesture (ParamID::scale, (float) random.nextInt (8));
+
+    // Guarantee that the mutation can be heard at all.
+    auto currentValue = [this] (const juce::String& id)
+    {
+        if (auto* pointer = apvts.getRawParameterValue (id))
+            return pointer->load();
+
+        return 0.0f;
+    };
+
+    const float sourceLevel = juce::jmax (currentValue (ParamID::osc1Level),
+                                          currentValue (ParamID::osc2Level))
+                              + currentValue (ParamID::noiseLevel);
+
+    if (sourceLevel < 0.45f)
+        setParameterValueAsGesture (ParamID::osc1Level, 0.75f);
+
+    // A fresh line: mostly stepwise, with a couple of leaps so it still reads
+    // as a riff rather than as noise.
+    const int rootStep = random.nextInt (8);
+    float lastPitch = 0.0f;
+
+    for (int i = 0; i < ReplicantEdgy::StepSequencer::numSteps; ++i)
+    {
+        if (i == rootStep)
+            lastPitch = 0.0f;
+        else if (random.nextFloat() < 0.25f)
+            lastPitch = random.nextFloat() * 1.1f - 0.55f;
+
+        const float drift = (random.nextFloat() - 0.5f) * 0.28f;
+        lastPitch = juce::jlimit (-0.85f, 0.85f, lastPitch + drift);
+
+        setParameterValueAsGesture (ParamID::stepPitch (i), lastPitch);
+        setParameterValueAsGesture (ParamID::stepVelocity (i),
+                                    i == rootStep ? 0.95f : 0.35f + random.nextFloat() * 0.6f);
+    }
+
+    // Patch a couple of cables, output -> input only, so the mutation can be
+    // heard as movement instead of being purely cosmetic.
+    std::vector<Cable> cables;
+
+    const Jack outputs[] =
+    {
+        Jack::Osc1, Jack::Osc2, Jack::OscEg, Jack::TriggerOut,
+        Jack::VelocityOut, Jack::Pitch, Jack::VcfEg, Jack::VcaEg
+    };
+    const Jack inputs[] =
+    {
+        Jack::Osc1Cv, Jack::Osc2Cv, Jack::OscDecay, Jack::AdvClock,
+        Jack::FmAmount, Jack::VcfMod, Jack::VcfDecay, Jack::VcaCv,
+        Jack::VcaDecay, Jack::PlayStop
+    };
+
+    const int numCables = random.nextInt (3);
+
+    for (int i = 0; i < numCables; ++i)
+    {
+        Cable cable;
+        cable.source = outputs[(size_t) random.nextInt ((int) (sizeof (outputs)
+                                                               / sizeof (outputs[0])))];
+        cable.destination = inputs[(size_t) random.nextInt ((int) (sizeof (inputs)
+                                                                  / sizeof (inputs[0])))];
+        cable.colour = i % 8;
+        cables.push_back (cable);
+    }
+
+    engine.getPatchBay().setCables (cables);
+
+    currentPresetName = juce::String (archetype.name) + " Mutation";
 }
 
 bool ReplicantEdgyAudioProcessor::deleteUserPreset (int index)

@@ -7,6 +7,7 @@
 // themeIndex switches the skin live through the ui_theme parameter (the same
 // path the combo box uses), drawerOpen shows the preset archive, and
 // presetIndex loads a factory patch so the panel shows real values and cables.
+// tempo (BPM) overrides the tempo so the LED display can be reviewed.
 //==============================================================================
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -44,6 +45,14 @@ int main (int argc, char* argv[])
         juce::AudioBuffer<float> buffer (2, 256);
         juce::MidiBuffer midi;
         processor.processBlock (buffer, midi);
+    }
+
+    if (argc > 5)
+    {
+        const float tempo = juce::String (argv[5]).getFloatValue();
+
+        if (tempo > 0.0f)
+            processor.setParameterValue (ReplicantEdgy::ParamID::tempo, tempo);
     }
 
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());

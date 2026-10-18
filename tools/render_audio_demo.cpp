@@ -38,10 +38,10 @@ namespace
         { 18.0, 5,  0.75f,  -4.0f },   // Acid Protocol
         { 28.0, 7,  1.00f,  -5.0f },   // Chrome Sub
         { 38.0, 10, 1.00f,  -6.0f },   // Ghost Wire
-        { 48.0, 13, 1.00f,  -5.0f },   // Static Rain
-        { 56.0, 22, 1.00f,  -7.0f },   // Feedback Grid
-        { 64.0, 3,  0.85f,  -5.0f },   // Voltage Drop
-        { 69.0, 0,  0.60f, -12.0f }    // tail
+        { 46.0, 13, 1.00f,  -5.0f },   // Static Rain
+        { 52.0, 22, 1.00f,  -7.0f },   // Feedback Grid
+        { 58.0, 3,  0.90f,  -5.0f },   // Voltage Drop
+        { 65.0, 0,  0.60f, -12.0f }    // tail
     };
 
     void setParam (ReplicantEdgyAudioProcessor& processor, const juce::String& id, float value)

@@ -210,6 +210,39 @@ namespace ReplicantEdgy
     {
         const auto& t = theme();
         auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
+        const bool cyber = (bool) button.getProperties()["cyberRandom"];
+
+        if (cyber)
+        {
+            // The mutation button gets its own neon treatment: a magenta/cyan
+            // gradient, a double rim and a soft glow, so it never reads as a
+            // plain utility button.
+            const float pulse = 0.55f + 0.25f * std::sin ((float) juce::Time::getMillisecondCounterHiRes()
+                                                          * 0.0022f);
+
+            g.setColour (t.accent.withAlpha (0.12f + 0.10f * pulse));
+            g.fillRoundedRectangle (bounds.expanded (4.0f), 5.0f);
+
+            juce::ColourGradient gradient (t.accent.withAlpha (0.55f), bounds.getX(),
+                                           bounds.getY(),
+                                           t.accentAlt.withAlpha (0.55f), bounds.getRight(),
+                                           bounds.getBottom(), false);
+            g.setGradientFill (gradient);
+            g.fillRoundedRectangle (bounds, 3.5f);
+
+            g.setColour (t.accent.withAlpha (0.95f));
+            g.drawRoundedRectangle (bounds, 3.5f, 1.4f);
+            g.setColour (t.accentAlt.withAlpha (0.55f));
+            g.drawRoundedRectangle (bounds.reduced (2.0f), 2.5f, 0.9f);
+
+            if (down || highlighted)
+            {
+                g.setColour (juce::Colours::white.withAlpha (down ? 0.14f : 0.07f));
+                g.fillRoundedRectangle (bounds, 3.5f);
+            }
+
+            return;
+        }
 
         auto face = backgroundColour;
 
@@ -238,6 +271,36 @@ namespace ReplicantEdgy
                                           bool, bool)
     {
         const auto& t = theme();
+        const bool cyber = (bool) button.getProperties()["cyberRandom"];
+
+        if (cyber)
+        {
+            auto bounds = button.getLocalBounds().toFloat();
+
+            // Lightning bolt, then the label.
+            const float cx = bounds.getX() + 16.0f;
+            const float cy = bounds.getCentreY();
+
+            juce::Path bolt;
+            bolt.startNewSubPath (cx + 3.0f, cy - 9.0f);
+            bolt.lineTo (cx - 3.0f, cy + 1.0f);
+            bolt.lineTo (cx + 0.5f, cy + 1.0f);
+            bolt.lineTo (cx - 2.0f, cy + 9.0f);
+            bolt.lineTo (cx + 5.0f, cy - 2.0f);
+            bolt.lineTo (cx + 1.0f, cy - 2.0f);
+            bolt.closeSubPath();
+
+            g.setColour (juce::Colours::white.withAlpha (0.92f));
+            g.fillPath (bolt);
+
+            g.setColour (juce::Colours::black.withAlpha (0.88f));
+            g.setFont (uiFont (10.5f, juce::Font::bold));
+            g.drawFittedText (button.getButtonText(),
+                              button.getLocalBounds().withTrimmedLeft (28).reduced (2, 0),
+                              juce::Justification::centred, 1, 0.9f);
+            return;
+        }
+
         g.setColour (withAlpha (t.silkscreen, button.isEnabled() ? 0.95f : 0.35f));
         g.setFont (uiFont (11.0f, juce::Font::bold));
         g.drawFittedText (button.getButtonText(), button.getLocalBounds().reduced (4, 0),

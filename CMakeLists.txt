@@ -59,6 +59,8 @@ set(REDG_SOURCES
     Source/GUI/PanelLayout.h
     Source/GUI/PresetDrawer.h
     Source/GUI/PresetDrawer.cpp
+    Source/GUI/TempoDisplay.h
+    Source/GUI/TempoDisplay.cpp
 )
 
 set(REDG_INCLUDE_DIRS Source Source/DSP Source/GUI Source/Presets)

@@ -2,6 +2,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
+
 #include "DSP/SynthEngine.h"
 #include "Presets/PresetManager.h"
 
@@ -77,6 +79,13 @@ public:
     /** Plain (not normalised) parameter write, used by presets and tests. */
     void setParameterValue (const juce::String& parameterId, float plainValue);
 
+    /** Same, wrapped in a begin/end change gesture so hosts record it. */
+    void setParameterValueAsGesture (const juce::String& parameterId, float plainValue);
+
+    /** Builds a fresh cyberpunk patch: random voice, random line and a couple
+        of random cables. Shared by the header RANDOM button and the archive. */
+    void randomisePatch();
+
 private:
     ReplicantEdgy::SynthEngine engine;
     ReplicantEdgy::PresetManager presetManager;
@@ -111,6 +120,9 @@ private:
     std::atomic<float>* pTempo = nullptr;
     std::atomic<float>* pClockSource = nullptr;
     std::atomic<float>* pScale = nullptr;
+
+    std::array<std::atomic<float>*, ReplicantEdgy::StepSequencer::numSteps> pStepPitch {};
+    std::array<std::atomic<float>*, ReplicantEdgy::StepSequencer::numSteps> pStepVelocity {};
 
     void cacheParameterPointers();
     void updateEngineParams();

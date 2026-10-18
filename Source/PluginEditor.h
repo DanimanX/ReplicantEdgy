@@ -7,6 +7,7 @@
 #include "GUI/EdgyTheme.h"
 #include "GUI/PanelLayout.h"
 #include "GUI/PresetDrawer.h"
+#include "GUI/TempoDisplay.h"
 
 class ReplicantEdgyAudioProcessorEditor : public juce::AudioProcessorEditor,
                                           private juce::Timer,
@@ -108,6 +109,9 @@ private:
     juce::TextButton nextButton { ">" };
     juce::TextButton saveButton { "SAVE" };
     juce::TextButton presetsButton { "PRESETS" };
+    juce::TextButton randomButton { "RANDOM" };
+
+    std::unique_ptr<ReplicantEdgy::TempoDisplay> tempoDisplay;
 
     // Cable drag state.
     ReplicantEdgy::Jack dragSource = ReplicantEdgy::Jack::NumJacks;
