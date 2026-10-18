@@ -59,6 +59,52 @@ namespace ReplicantEdgy
     }
 
     //==============================================================================
+    void EdgyLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
+                                            float sliderPos, float minSliderPos, float maxSliderPos,
+                                            juce::Slider::SliderStyle style, juce::Slider& slider)
+    {
+        if (style != juce::Slider::LinearHorizontal && style != juce::Slider::LinearBar)
+        {
+            LookAndFeel_V4::drawLinearSlider (g, x, y, width, height, sliderPos, minSliderPos,
+                                              maxSliderPos, style, slider);
+            return;
+        }
+
+        const auto& t = theme();
+        auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat();
+        const float centreY = bounds.getCentreY();
+        const float trackHeight = juce::jmax (5.0f, bounds.getHeight() * 0.18f);
+
+        auto track = juce::Rectangle<float> (bounds.getX(), centreY - trackHeight * 0.5f,
+                                             bounds.getWidth(), trackHeight);
+
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (track.translated (0.0f, 1.5f), trackHeight * 0.5f);
+
+        g.setColour (t.panelFaceDark);
+        g.fillRoundedRectangle (track, trackHeight * 0.5f);
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (track.reduced (1.0f), trackHeight * 0.5f);
+        g.setColour (t.accent.withAlpha (0.38f));
+        g.drawRoundedRectangle (track, trackHeight * 0.5f, 1.0f);
+
+        auto filled = track.withRight (juce::jlimit (track.getX(), track.getRight(), sliderPos));
+        g.setColour (t.accentAlt.withAlpha (0.85f));
+        g.fillRoundedRectangle (filled, trackHeight * 0.5f);
+
+        const float radius = juce::jmax (4.0f, juce::jmin (9.0f, bounds.getHeight() * 0.36f));
+        const juce::Point<float> thumb (sliderPos, centreY);
+
+        g.setColour (t.accent.withAlpha (0.22f));
+        g.fillEllipse (juce::Rectangle<float> (radius * 3.2f, radius * 3.2f).withCentre (thumb));
+        g.setColour (t.knobFace.brighter (0.10f));
+        g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (thumb));
+        g.setColour (t.accent);
+        g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (thumb), 1.3f);
+        g.fillEllipse (juce::Rectangle<float> (radius * 0.7f, radius * 0.7f).withCentre (thumb));
+    }
+
+    //==============================================================================
     void EdgyLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                                             float sliderPos, float rotaryStartAngle,
                                             float rotaryEndAngle, juce::Slider& slider)

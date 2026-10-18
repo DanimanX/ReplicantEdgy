@@ -431,6 +431,57 @@ namespace
             host.process (0.0f, 0.0f, 0.0f);
 
         check (host.getCurrentStep() == 2, "MIDI clock follows the host transport at 120 BPM");
+
+        // The DAW transport alone must start the sequence: no local PLAY press,
+        // and the host tempo must be the one the clock uses.
+        ReplicantEdgy::StepSequencer hostDriven;
+        hostDriven.prepare (48000.0);
+        hostDriven.setTempo (60.0f);          // deliberately wrong internal tempo
+        hostDriven.setClockSource (ReplicantEdgy::ClockSource::Midi);
+        hostDriven.setPlaying (false);
+        hostDriven.setHostState (true, 128.0);
+
+        int firstAdvance = -1;
+
+        for (int i = 0; i < 7000 && firstAdvance < 0; ++i)
+            if (hostDriven.process (0.0f, 0.0f, 0.0f).advanced)
+                firstAdvance = i;
+
+        // 48000 * 60 / 128 * 0.25 = 5625 samples per 1/16.
+        check (firstAdvance == 5625,
+               "host play starts a synced sequence at the host tempo (got "
+                   + juce::String (firstAdvance) + ")");
+        check (hostDriven.isPlaying(), "MIDI mode reports the host transport as playing");
+
+        // A block where the host omits the BPM must not fall back to 60 BPM.
+        hostDriven.setHostState (true, 0.0);
+
+        int secondAdvance = -1;
+
+        for (int i = 0; i < 7000 && secondAdvance < 0; ++i)
+            if (hostDriven.process (0.0f, 0.0f, 0.0f).advanced)
+                secondAdvance = i;
+
+        check (std::abs (secondAdvance - 5625) <= 1,
+               "the last host BPM is latched when a block omits it (got "
+                   + juce::String (secondAdvance) + ")");
+
+        // The standalone wrapper has no host transport, so MIDI mode must still
+        // let the local PLAY button run the sequence.
+        ReplicantEdgy::StepSequencer standalone;
+        standalone.prepare (48000.0);
+        standalone.setTempo (120.0f);
+        standalone.setClockSource (ReplicantEdgy::ClockSource::Midi);
+        standalone.setPlaying (true);
+
+        int standaloneAdvance = -1;
+
+        for (int i = 0; i < 8000 && standaloneAdvance < 0; ++i)
+            if (standalone.process (0.0f, 0.0f, 0.0f).advanced)
+                standaloneAdvance = i;
+
+        check (standaloneAdvance == 6000,
+               "without a host transport MIDI mode falls back to the internal clock");
     }
 
     //==========================================================================
@@ -873,12 +924,45 @@ namespace
         check (std::abs (display.getValue() - 300.0f) < 0.01f,
                "the display shows the clamped value");
 
+        // Host sync: the LED readout shows the DAW tempo, not the knob value.
+        display.setHostSync (true, 155.0f);
+        check (std::abs (display.getDisplayedValue() - 155.0f) < 0.01f,
+               "host sync shows the DAW tempo on the LED display");
+        check (std::abs (processor.apvts.getRawParameterValue (ParamID::tempo)->load() - 300.0f) < 0.01f,
+               "host sync leaves the tempo parameter untouched");
+        display.setHostSync (false, 0.0f);
+        check (std::abs (display.getDisplayedValue() - 300.0f) < 0.01f,
+               "leaving host sync restores the panel tempo");
+
         // Drive the parameter itself, not the display, so the attachment round
         // trip is what is actually being tested.
         tempoParameter->setValueNotifyingHost (tempoParameter->convertTo0to1 (72.0f));
         juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
         check (std::abs (display.getValue() - 72.0f) < 0.01f,
                "the display follows external tempo changes");
+
+        // A cancelled edit (Escape) must not have touched the clock source:
+        // the display only leaves host sync when a tempo is actually committed.
+        int manualEdits = 0;
+        display.onManualEdit = [&manualEdits] { ++manualEdits; };
+        display.setHostSync (true, 128.0f);
+
+        // Clicking without committing is what Escape cancels.
+        const auto click = juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(),
+                                             juce::Point<float> (20.0f, 20.0f),
+                                             juce::ModifierKeys::leftButtonModifier,
+                                             1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                             &display, &display, juce::Time::getCurrentTime(),
+                                             juce::Point<float> (20.0f, 20.0f),
+                                             juce::Time::getCurrentTime(), 1, false);
+        display.mouseDown (click);
+        check (manualEdits == 0 && display.getDisplayedValue() > 127.0f,
+               "opening the tempo editor leaves host sync untouched");
+
+        display.setValue (129.5f);
+        check (manualEdits == 1, "committing a tempo leaves host sync exactly once");
+        check (display.getDisplayedValue() > 129.0f && display.getDisplayedValue() < 130.0f,
+               "a committed tempo becomes the displayed value");
     }
 
     //==========================================================================
@@ -1000,6 +1084,27 @@ namespace
 
         check (allPresent, "every parameter is registered");
 
+        auto* clockParameter = processor.apvts.getParameter (ParamID::clockSource);
+        check (clockParameter != nullptr
+                   && juce::roundToInt (clockParameter->getValue() * 2.0f) == 1,
+               "the factory default clock follows the host (MIDI)");
+
+        // Every factory patch, not just the first, must open host-synced.
+        bool allSynced = processor.getPresetManager().getNumFactory() > 0;
+
+        for (int i = 0; i < processor.getPresetManager().getNumFactory(); ++i)
+            allSynced = allSynced
+                        && juce::roundToInt (processor.getPresetManager().getPreset (i)
+                                                 .get (ParamID::clockSource, -1.0f)) == 1;
+
+        check (allSynced, "every factory preset ships host-synced");
+
+        // And loading one actually carries that into the live parameter tree.
+        processor.applyPreset (0);
+        check (juce::roundToInt (processor.apvts.getRawParameterValue (ParamID::clockSource)->load())
+                   == 1,
+               "loading a factory preset selects the MIDI clock");
+
         processor.applyPreset (1);
         check (processor.getCurrentPresetIndex() == 1, "applying a preset updates the index");
 
@@ -1031,6 +1136,7 @@ namespace
         // Capture -> save -> state round-trip.
         processor.setParameterValue (ParamID::cutoff, 2222.0f);
         processor.setParameterValue (ParamID::tempo, 141.0f);
+        processor.setUiZoom (1.75f);
         processor.getEngine().getPatchBay().connect (Jack::Osc1, Jack::Osc2Cv);
 
         const auto captured = processor.captureCurrentPreset ("Round Trip", "User");
@@ -1050,6 +1156,24 @@ namespace
                "patch cables survive the state round-trip");
         check (restored.getCurrentPresetIndex() == processor.getCurrentPresetIndex(),
                "the active preset survives the state round-trip");
+        check (std::abs (restored.getUiZoom() - 1.75f) < 0.01f,
+               "the editor zoom survives the state round-trip");
+
+        // An out-of-range zoom in a saved project is clamped, never trusted.
+        {
+            auto hostile = processor.apvts.copyState();
+            hostile.setProperty ("uiZoom", 42.0, nullptr);
+
+            juce::MemoryBlock hostileState;
+
+            if (auto xml = hostile.createXml())
+                juce::AudioProcessor::copyXmlToBinary (*xml, hostileState);
+
+            ReplicantEdgyAudioProcessor guarded;
+            guarded.setStateInformation (hostileState.getData(), (int) hostileState.getSize());
+            check (std::abs (guarded.getUiZoom() - 3.0f) < 0.01f,
+                   "an out-of-range saved zoom clamps to 300 %");
+        }
 
         // Import/export through the processor.
         auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
@@ -1088,6 +1212,83 @@ namespace
         check (finite && peak > 0.02f && peak < 4.0f,
                "the processor renders the sequencer through the full chain");
 
+        // ---- integration: a real playhead drives the plugin clock -----------
+        struct StubPlayHead final : public juce::AudioPlayHead
+        {
+            double bpm = 128.0;
+            bool playing = false;
+
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo info;
+                info.setBpm (bpm);
+                info.setIsPlaying (playing);
+                return info;
+            }
+        };
+
+        ReplicantEdgyAudioProcessor synced;
+        synced.prepareToPlay (48000.0, 256);
+        synced.setParameterValue (ParamID::clockSource, 1.0f);   // MIDI
+        synced.setParameterValue (ParamID::scale, 1.0f);        // 1/16
+        synced.setParameterValue (ParamID::tempo, 60.0f);       // wrong on purpose
+
+        StubPlayHead playHead;
+        synced.setPlayHead (&playHead);
+
+        auto& syncedSequencer = synced.getEngine().getSequencer();
+        syncedSequencer.setPlaying (true);   // a stale local press must not win
+
+        auto runBlocks = [&synced] (int blocks)
+        {
+            for (int i = 0; i < blocks; ++i)
+            {
+                juce::AudioBuffer<float> audio (2, 256);
+                juce::MidiBuffer events;
+                synced.processBlock (audio, events);
+            }
+        };
+
+        runBlocks (200);   // one second with the DAW stopped
+        check (syncedSequencer.getCurrentStep() == 0,
+               "a stopped DAW transport freezes a MIDI-synced sequence");
+
+        playHead.playing = true;
+        int samplesUntilStep = 0;
+
+        while (samplesUntilStep < 20000 && syncedSequencer.getCurrentStep() == 0)
+        {
+            runBlocks (1);
+            samplesUntilStep += 256;
+        }
+
+        // 128 BPM at 1/16 = 5625 samples; blocked processing lands on 5632.
+        check (samplesUntilStep >= 5500 && samplesUntilStep <= 5760,
+               "the processor follows the DAW tempo (first step at "
+                   + juce::String (samplesUntilStep) + " samples)");
+        check (syncedSequencer.isPlaying(), "the processor reports host playback");
+
+        synced.setPlayHead (nullptr);
+
+        // A transport that disappears must not leave the sequence running: the
+        // host stops reporting a position, so the latched PLAY state is dropped.
+        synced.setPlayHead (&playHead);
+        playHead.playing = true;
+        runBlocks (4);
+        check (syncedSequencer.isPlaying(), "the DAW transport is running again");
+
+        struct NoPositionPlayHead final : public juce::AudioPlayHead
+        {
+            juce::Optional<PositionInfo> getPosition() const override { return {}; }
+        };
+
+        NoPositionPlayHead emptyHead;
+        synced.setPlayHead (&emptyHead);
+        runBlocks (4);
+        check (! syncedSequencer.isPlaying(),
+               "a host that stops reporting a position releases the transport");
+        synced.setPlayHead (nullptr);
+
         testPresetDir.deleteRecursively();
     }
 
@@ -1112,6 +1313,26 @@ namespace
         check (editor->getWidth() == ReplicantEdgy::Layout::panelWidth
                    && editor->getHeight() == ReplicantEdgy::Layout::panelHeight,
                "the panel opens at its hardware size");
+        check (editor->isResizable(), "the editor hosts a resize corner");
+
+        // A zoom restored from the project state is applied when the editor
+        // opens, not only when the user drags the slider.
+        {
+            ReplicantEdgyAudioProcessor saved;
+            saved.setUiZoom (1.5f);
+
+            juce::MemoryBlock state;
+            saved.getStateInformation (state);
+
+            ReplicantEdgyAudioProcessor reopened;
+            reopened.setStateInformation (state.getData(), (int) state.getSize());
+
+            std::unique_ptr<juce::AudioProcessorEditor> reopenedEditor (reopened.createEditor());
+            check (reopenedEditor != nullptr
+                       && reopenedEditor->getWidth() == 1920
+                       && reopenedEditor->getHeight() == 1140,
+                   "a reopened instance applies its saved zoom");
+        }
 
         concrete->setPresetDrawerOpen (true, false);
         check (editor->getHeight() == ReplicantEdgy::Layout::panelHeight
@@ -1144,6 +1365,43 @@ namespace
         juce::MessageManager::getInstance()->runDispatchLoopUntil (600);
         check (editor->getHeight() == ReplicantEdgy::Layout::panelHeight,
                "the animated drawer closes completely");
+
+        // ---- resize / zoom -------------------------------------------------
+        concrete->setZoom (0.5f);
+        check (editor->getWidth() == 640 && editor->getHeight() == 380,
+               "50 % zoom renders the panel at 640 x 380");
+        check (std::abs (concrete->getPanel().getTransform().mat00 - 0.5f) < 0.001f,
+               "the whole panel is scaled by the zoom transform");
+        check (concrete->getPanel().getWidth() == ReplicantEdgy::Layout::panelWidth,
+               "the panel keeps its logical width while zoomed");
+
+        concrete->setZoom (3.0f);
+        check (editor->getWidth() == 3840 && editor->getHeight() == 2280,
+               "300 % zoom renders the panel at 3840 x 2280");
+
+        concrete->setZoom (1.0f);
+        check (editor->getWidth() == ReplicantEdgy::Layout::panelWidth
+                   && editor->getHeight() == ReplicantEdgy::Layout::panelHeight,
+               "100 % zoom returns to the hardware size");
+
+        // The drawer follows the zoom instead of snapping back to 100 %.
+        concrete->setZoom (1.5f);
+        concrete->setPresetDrawerOpen (true, false);
+        check (editor->getWidth() == 1920 && editor->getHeight() == 1650,
+               "the open drawer is scaled with the panel");
+        concrete->setPresetDrawerOpen (false, false);
+        check (editor->getWidth() == 1920 && editor->getHeight() == 1140,
+               "closing the drawer keeps the current zoom");
+
+        // A host forcing a window size updates the zoom readout instead of
+        // leaving the two out of sync.
+        editor->setSize (2560, 1520);
+        check (std::abs (concrete->getZoom() - 2.0f) < 0.01f,
+               "resizing the window adopts the resulting zoom");
+        check (std::abs (concrete->getPanel().getTransform().mat00 - 2.0f) < 0.01f,
+               "the panel transform follows a host resize");
+
+        concrete->setZoom (1.0f);
     }
 }
 

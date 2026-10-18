@@ -7,9 +7,9 @@
 namespace ReplicantEdgy::Layout
 {
     //==============================================================================
-    /** Fixed geometry shared by painting, hit testing and the cable layer.
-        The EDGE is a piece of hardware: its proportions never change, so every
-        number lives here instead of being duplicated. */
+    /** Logical geometry shared by painting, hit testing and the cable layer.
+        The panel is laid out once on this 1280 x 760 grid; the window wrapper
+        scales the whole grid, so painting and hit testing can never drift. */
     inline constexpr int panelWidth  = 1280;
     inline constexpr int panelHeight = 760;
 
@@ -38,12 +38,15 @@ namespace ReplicantEdgy::Layout
 
     // Header widgets.
     inline juce::Rectangle<float> presetPrevButton()  { return { 470.0f, 20.0f, 34.0f, 30.0f }; }
-    inline juce::Rectangle<float> presetNameBox()     { return { 508.0f, 20.0f, 250.0f, 30.0f }; }
-    inline juce::Rectangle<float> presetNextButton()  { return { 762.0f, 20.0f, 34.0f, 30.0f }; }
-    inline juce::Rectangle<float> saveButton()        { return { 806.0f, 20.0f, 82.0f, 30.0f }; }
-    inline juce::Rectangle<float> presetsButton()     { return { 894.0f, 20.0f, 98.0f, 30.0f }; }
-    inline juce::Rectangle<float> randomButton()      { return { 998.0f, 20.0f, 98.0f, 30.0f }; }
-    inline juce::Rectangle<float> themeBox()          { return { 1104.0f, 20.0f, 164.0f, 30.0f }; }
+    inline juce::Rectangle<float> presetNameBox()     { return { 508.0f, 20.0f, 180.0f, 30.0f }; }
+    inline juce::Rectangle<float> presetNextButton()  { return { 692.0f, 20.0f, 34.0f, 30.0f }; }
+    inline juce::Rectangle<float> saveButton()        { return { 730.0f, 20.0f, 72.0f, 30.0f }; }
+    inline juce::Rectangle<float> presetsButton()     { return { 806.0f, 20.0f, 88.0f, 30.0f }; }
+    inline juce::Rectangle<float> randomButton()      { return { 898.0f, 20.0f, 88.0f, 30.0f }; }
+    inline juce::Rectangle<float> themeBox()          { return { 990.0f, 20.0f, 140.0f, 30.0f }; }
+
+    /** Panel zoom, 50..300 %. Lives in the header so it scales with the panel. */
+    inline juce::Rectangle<float> zoomSlider()        { return { 1138.0f, 20.0f, 130.0f, 30.0f }; }
 
     // Sequential controls.
     inline juce::Rectangle<float> tempoKnob()     { return { 42.0f, 608.0f, 72.0f, 72.0f }; }

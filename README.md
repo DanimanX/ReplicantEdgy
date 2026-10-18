@@ -83,10 +83,15 @@ cable runs and a live signal analyser. Three skins ship in the plugin.
   live: pitch bends the VCOs up to ±12 semitones through `SEQ PITCH MOD`, and
   velocity drives the VCA level and the VCF envelope.
 * **Red LED tempo readout** under the TEMPO knob: a seven-segment display on a
-  graticule grid. Click it to type an exact BPM, or scroll to nudge it by 0.5.
+  graticule grid. It shows the DAW tempo with a **SYNC** caption while the panel
+  follows the host. Click it to type an exact BPM, or scroll to nudge it by 0.5
+  (typing leaves host sync and hands the clock back to the TEMPO knob).
 * **TRIGGER**, **PLAY/STOP** and **ADVANCE** buttons.
 * Clock **1/32 … 1/4 plus triplets**, internal tempo, **host/MIDI sync** or
-  **external clock** through the `ADV/CLOCK` jack.
+  **external clock** through the `ADV/CLOCK` jack. **MIDI is the factory
+  default**: the plugin opens on the DAW transport and tempo, and every factory
+  patch ships host-synced. In the standalone app, where there is no host
+  transport, `MIDI` falls back to the local `PLAY/STOP` button.
 * The sequencer drives the envelopes and both oscillators, and the `PITCH`,
   `TRIGGER` and `VELOCITY` outputs can be patched anywhere.
 
@@ -104,6 +109,17 @@ cable runs and a live signal analyser. Three skins ship in the plugin.
 * **Neon Magenta** — black chassis, magenta edge light, cyan instrumentation.
 * **Toxic Lime** — acid green silkscreen with magenta wiring.
 * **Chrome Blue** — brushed steel with electric blue and hot pink.
+
+### 🔍 Resizable Window & 50–300 % Zoom
+* The window is **resizable from 50 % to 300 %** in both the plugin and the
+  standalone app; drag the bottom-right corner or use the **ZOOM** slider in the
+  header.
+* The entire panel — knobs, fonts, patch bay, cables and the preset drawer — is
+  scaled by one transform, so nothing reflows or clips at any zoom level.
+* Keyboard: **Ctrl/Cmd + `+`**, **Ctrl/Cmd + `-`** and **Ctrl/Cmd + `0`**
+  (reset to 100 %).
+* The chosen zoom is stored with the plugin state, so reopening a project keeps
+  the size you set.
 
 ---
 
@@ -237,11 +253,12 @@ cmake --build build --parallel
 
 ### Tests
 
-The headless suite (**122 checks**) covers the oscillators, noise, ladder
+The headless suite (**153 checks**) covers the oscillators, noise, ladder
 filter, envelopes, the sequencer clock (internal, host and external), the step
 pitch/velocity wiring, the tempo readout, the patch bay routing and cable
 rules, the full engine, the random mutation, the preset manager (factory, user,
-export/import), the plugin state round-trip and the editor/drawer:
+export/import), the plugin state round-trip, host transport/BPM integration and
+the editor/drawer/zoom behaviour:
 
 ```bash
 cmake --build build --target run_tests
@@ -252,8 +269,8 @@ xvfb-run -a ./build/run_tests     # Linux, without a display
 ### Screenshots
 
 `generate_snapshot` renders the editor off-screen. It takes an output path, a
-skin index, a drawer flag, a preset index and an optional tempo (useful to
-review the LED readout):
+skin index, a drawer flag, a preset index, an optional tempo (useful to
+review the LED readout) and an optional zoom percentage:
 
 ```bash
 cmake --build build --target generate_snapshot
@@ -263,6 +280,7 @@ cmake --build build --target generate_snapshot
 ./build/generate_snapshot assets/replicantedgy_ui_blue.png    2 0 24
 ./build/generate_snapshot assets/replicantedgy_drawer.png     0 1 24
 ./build/generate_snapshot /tmp/tempo.png 0 0 24 143.5         # LED readout at 143.5 BPM
+./build/generate_snapshot /tmp/zoom50.png 0 0 24 140 50     # 50 % panel
 ```
 
 ### Promo video

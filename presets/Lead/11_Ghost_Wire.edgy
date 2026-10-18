@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <PRESET name="Ghost Wire" category="Lead">
-  <PARAMETERS clock_source="0.0" cutoff="1800.0" eg_decay="0.25" fm_amt="0.550000011920929"
+  <PARAMETERS clock_source="1.0" cutoff="1800.0" eg_decay="0.25" fm_amt="0.550000011920929"
               hard_sync="0.0" noise_colour="0.0" noise_level="0.0" noise_vcf_mod="0.0"
               osc1_env="0.4000000059604645" osc1_freq="0.5799999833106995"
               osc1_level="0.8500000238418579" osc1_shape="0.0" osc2_env="0.0"

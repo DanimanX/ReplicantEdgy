@@ -258,21 +258,33 @@ void ReplicantEdgyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
 
     updateEngineParams();
 
-    double hostBpm = 0.0;
-    bool hostPlaying = false;
+    // Read the host transport once per block. A missing position or a missing
+    // BPM must not reset the clock: keep the last values the host reported.
+    // Only the complete absence of a transport (the standalone wrapper has a
+    // playhead but no timing) hands control back to the local transport.
+    bool hostTransportPresent = false;
 
     if (auto* playHead = getPlayHead())
     {
         if (auto position = playHead->getPosition())
         {
-            if (auto bpm = position->getBpm())
-                hostBpm = *bpm;
+            hostTransportPresent = true;
 
-            hostPlaying = position->getIsPlaying();
+            if (auto bpm = position->getBpm())
+            {
+                if (*bpm > 1.0 && std::isfinite (*bpm))
+                    lastHostBpm.store (*bpm);
+            }
+
+            lastHostPlaying.store (position->getIsPlaying());
         }
     }
 
-    engine.setHostState (hostPlaying, hostBpm);
+    if (! hostTransportPresent)
+        lastHostPlaying.store (false);
+
+    engine.setHostTransportAvailable (hostTransportPresent);
+    engine.setHostState (lastHostPlaying.load(), lastHostBpm.load());
     engine.processBlock (buffer, midi);
 }
 
@@ -626,6 +638,7 @@ void ReplicantEdgyAudioProcessor::getStateInformation (juce::MemoryBlock& destDa
     state.appendChild (engine.getPatchBay().toValueTree(), nullptr);
     state.setProperty ("presetIndex", getCurrentPresetIndex(), nullptr);
     state.setProperty ("presetName", currentPresetName, nullptr);
+    state.setProperty ("uiZoom", (double) uiZoom.load(), nullptr);
     state.setProperty ("stateVersion", 1, nullptr);
 
     if (auto xml = state.createXml())
@@ -647,6 +660,7 @@ void ReplicantEdgyAudioProcessor::setStateInformation (const void* data, int siz
     currentPresetIndex.store (juce::jlimit (0, juce::jmax (0, presetManager.getNumPresets() - 1),
                                             presetIndex));
     currentPresetName = tree.getProperty ("presetName", "Init").toString();
+    uiZoom.store (juce::jlimit (0.5f, 3.0f, (float) (double) tree.getProperty ("uiZoom", 1.0)));
 
     auto parameterState = tree.createCopy();
     parameterState.removeChild (parameterState.getChildWithName ("PATCH"), nullptr);

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <PRESET name="Voltage Field" category="Drone">
-  <PARAMETERS clock_source="0.0" cutoff="380.0" eg_decay="1.600000023841858"
+  <PARAMETERS clock_source="1.0" cutoff="380.0" eg_decay="1.600000023841858"
               fm_amt="0.300000011920929" hard_sync="0.0" noise_colour="0.0"
               noise_level="0.0" noise_vcf_mod="0.0" osc1_env="0.1000000014901161"
               osc1_freq="0.239999994635582" osc1_level="0.8500000238418579"

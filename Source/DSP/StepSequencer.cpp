@@ -19,6 +19,11 @@ namespace ReplicantEdgy
         samplesIntoStep = 0.0;
         currentStep.store (0);
         playing.store (false);
+        hostBpm.store (0.0, std::memory_order_relaxed);
+        hostBpmValid.store (false, std::memory_order_relaxed);
+        hostPlaying.store (false, std::memory_order_relaxed);
+        hostAvailable.store (false, std::memory_order_relaxed);
+        hostSeen.store (false, std::memory_order_relaxed);
         needsInitialTrigger = true;
         transportWasRunning = false;
         playGateHigh = false;
@@ -36,8 +41,43 @@ namespace ReplicantEdgy
 
     void StepSequencer::setHostState (bool hostIsPlaying, double hostBpmValue) noexcept
     {
-        hostPlaying = hostIsPlaying;
-        hostBpm = hostBpmValue;
+        hostPlaying.store (hostIsPlaying, std::memory_order_relaxed);
+
+        // The standalone wrapper (and some hosts while stopped) return a
+        // position without a BPM. Only latch real timing information; a missing
+        // value must never erase the tempo the host already gave us.
+        if (hostBpmValue > 1.0 && std::isfinite (hostBpmValue))
+        {
+            hostBpm.store (hostBpmValue, std::memory_order_relaxed);
+            hostBpmValid.store (true, std::memory_order_relaxed);
+            hostAvailable.store (true, std::memory_order_relaxed);
+            hostSeen.store (true, std::memory_order_relaxed);
+        }
+
+        if (hostIsPlaying)
+            hostAvailable.store (true, std::memory_order_relaxed);
+    }
+
+    void StepSequencer::setHostTransportAvailable (bool available) noexcept
+    {
+        hostAvailable.store (available, std::memory_order_relaxed);
+
+        if (available)
+            hostSeen.store (true, std::memory_order_relaxed);
+        else
+            hostPlaying.store (false, std::memory_order_relaxed);
+    }
+
+    bool StepSequencer::isPlaying() const noexcept
+    {
+        if (! followsHost())
+            return playing.load (std::memory_order_relaxed);
+
+        // MIDI mode is driven by the host. Only a plugin that has never seen a
+        // host transport (the standalone app) falls back to its local button.
+        return hostPlaying.load (std::memory_order_relaxed)
+               || (! hostSeen.load (std::memory_order_relaxed)
+                   && playing.load (std::memory_order_relaxed));
     }
 
     void StepSequencer::setStep (int index, float pitchValue, float velocityValue) noexcept
@@ -108,8 +148,16 @@ namespace ReplicantEdgy
 
         const auto source = (ClockSource) clockSource.load();
         const bool followsHost = source == ClockSource::Midi;
-        const bool isPlayingNow = playing.load();
-        const bool runs = followsHost ? (isPlayingNow && hostPlaying) : isPlayingNow;
+        const bool hostRuns = hostPlaying.load (std::memory_order_relaxed);
+        const bool hostEverSeen = hostSeen.load (std::memory_order_relaxed);
+        const bool isPlayingNow = playing.load (std::memory_order_relaxed);
+
+        // In MIDI mode the host transport is the master: pressing play in the
+        // DAW starts the sequence, and its absence is not overruled by a stale
+        // local PLAY state. Only a plugin that has never had a host transport
+        // (the standalone wrapper) falls back to the local button.
+        const bool runs = followsHost ? (hostRuns || (! hostEverSeen && isPlayingNow))
+                                      : isPlayingNow;
         const auto currentScale = (ClockScale) scale.load();
 
         // Restart from step 0 on every rising edge of the transport.
@@ -124,7 +172,9 @@ namespace ReplicantEdgy
         if (! runs || source == ClockSource::External)
             return event;
 
-        double bpm = followsHost && hostBpm > 1.0 ? hostBpm : (double) tempoBpm.load();
+        double bpm = followsHost && hostBpmValid.load (std::memory_order_relaxed)
+                         ? hostBpm.load (std::memory_order_relaxed)
+                         : (double) tempoBpm.load();
 
         // TEMPO patch point: +/- one octave of speed at full CV.
         bpm *= std::pow (2.0, (double) juce::jlimit (-1.0f, 1.0f, tempoCv));

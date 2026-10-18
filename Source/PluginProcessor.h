@@ -64,6 +64,14 @@ public:
     int getCurrentPresetIndex() const noexcept { return currentPresetIndex.load(); }
     juce::String getCurrentPresetName() const;
 
+    /** Editor zoom, 0.5 .. 3.0. UI state: saved with the plugin state so a
+        reopened instance keeps the size the user chose. */
+    float getUiZoom() const noexcept { return uiZoom.load(); }
+    void setUiZoom (float newZoom) noexcept
+    {
+        uiZoom.store (juce::jlimit (0.5f, 3.0f, newZoom));
+    }
+
     /** Captures the panel, the eight steps and the cables into a preset. */
     ReplicantEdgy::Preset captureCurrentPreset (const juce::String& name,
                                                 const juce::String& category) const;
@@ -92,6 +100,13 @@ private:
 
     std::atomic<int> currentPresetIndex { 0 };
     juce::String currentPresetName { "Init" };
+
+    std::atomic<float> uiZoom { 1.0f };
+
+    // Latched host transport. A host may omit timing information on some
+    // callbacks; the last known state is what the sequencer must keep using.
+    std::atomic<double> lastHostBpm { 0.0 };
+    std::atomic<bool> lastHostPlaying { false };
 
     std::atomic<float>* pOsc1Freq = nullptr;
     std::atomic<float>* pOsc1Shape = nullptr;

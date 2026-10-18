@@ -3,6 +3,7 @@
 // promo video.
 //
 //   generate_snapshot [output.png] [themeIndex] [drawerOpen] [presetIndex]
+//                     [tempo] [zoomPercent]
 //
 // themeIndex switches the skin live through the ui_theme parameter (the same
 // path the combo box uses), drawerOpen shows the preset archive, and
@@ -92,6 +93,20 @@ int main (int argc, char* argv[])
 
         if (concrete == nullptr)
             return 3;
+
+        if (argc > 6)
+        {
+            const float zoomPercent = juce::String (argv[6]).getFloatValue();
+
+            if (zoomPercent > 0.0f)
+            {
+                concrete->setZoom (zoomPercent / 100.0f);
+                juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
+
+                std::cout << "[INFO] Zoom: " << juce::roundToInt (concrete->getZoom() * 100.0f)
+                          << "%" << std::endl;
+            }
+        }
 
         const int mode = juce::String (argv[3]).getIntValue();
         concrete->setPresetDrawerOpen (mode != 0, false);

@@ -107,6 +107,7 @@ namespace ReplicantEdgy
         void copyScope (float* destination, int count) const;
 
         void setHostState (bool hostIsPlaying, double hostBpm) noexcept;
+        void setHostTransportAvailable (bool available) noexcept;
 
         void noteOn (int midiNote, float velocity) noexcept;
         void allNotesOff() noexcept;

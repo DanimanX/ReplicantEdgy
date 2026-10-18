@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <PRESET name="Obsidian Drone" category="Drone">
-  <PARAMETERS clock_source="0.0" cutoff="220.0" eg_decay="2.799999952316284"
+  <PARAMETERS clock_source="1.0" cutoff="220.0" eg_decay="2.799999952316284"
               fm_amt="0.0" hard_sync="0.0" noise_colour="0.0" noise_level="0.1000000014901161"
               noise_vcf_mod="0.0" osc1_env="-0.4000000059604645" osc1_freq="0.1599999964237213"
               osc1_level="0.8500000238418579" osc1_shape="0.0" osc2_env="0.300000011920929"

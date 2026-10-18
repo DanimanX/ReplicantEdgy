@@ -40,10 +40,50 @@ namespace ReplicantEdgy
             return (ClockSource) clockSource.load (std::memory_order_relaxed);
         }
 
+        /** Caches the transport reported by the host at the top of a block.
+
+            A host is free to omit the BPM (or return no position at all) on
+            some callbacks, so a valid tempo is latched and kept until the host
+            reports a different one. That keeps a synced sequence from lurching
+            back to the internal tempo whenever a block arrives without timing
+            information.
+        */
         void setHostState (bool hostIsPlaying, double hostBpm) noexcept;
+
+        /** Called when the host exposes no transport at all (no playhead, or no
+            position for this block). The latched transport is dropped so a
+            sequence cannot keep running on a transport that has gone away. */
+        void setHostTransportAvailable (bool available) noexcept;
+
+        /** Local transport, used by INT and, as a fallback, when there is no
+            host transport at all (the standalone app). In MIDI mode the host
+            transport owns playback. */
         void setPlaying (bool shouldPlay) noexcept { playing.store (shouldPlay); }
-        bool isPlaying() const noexcept { return playing.load (std::memory_order_relaxed); }
+
+        /** The state the clock is actually in: the host transport in MIDI mode,
+            the local one otherwise. */
+        bool isPlaying() const noexcept;
         void togglePlaying() noexcept { playing.store (! playing.load (std::memory_order_relaxed)); }
+
+        /** True when the panel follows a host that has reported timing data. */
+        bool followsHost() const noexcept
+        {
+            return clockSource.load (std::memory_order_relaxed) == (int) ClockSource::Midi;
+        }
+
+        /** Last valid host tempo, or 0 when the host has not supplied one yet. */
+        double getHostBpm() const noexcept { return hostBpm.load (std::memory_order_relaxed); }
+        bool hasHostTempo() const noexcept
+        {
+            return hostBpmValid.load (std::memory_order_relaxed);
+        }
+
+        /** Tempo the clock is running at, for the LED display. */
+        float getEffectiveBpm() const noexcept
+        {
+            return (followsHost() && hasHostTempo()) ? (float) getHostBpm()
+                                                     : tempoBpm.load (std::memory_order_relaxed);
+        }
 
         /** Manual TRIGGER button: fire the envelopes, keep the step position. */
         void triggerNow() noexcept { pendingTrigger.store (true); }
@@ -76,8 +116,15 @@ namespace ReplicantEdgy
         double samplesIntoStep = 0.0;
 
         std::atomic<float> tempoBpm { 120.0f };
-        double hostBpm = 0.0;
-        bool hostPlaying = false;
+        std::atomic<double> hostBpm { 0.0 };
+        std::atomic<bool> hostBpmValid { false };
+        std::atomic<bool> hostPlaying { false };
+        std::atomic<bool> hostAvailable { false };
+
+        // Sticky: set the first time a real host transport is seen. The local
+        // PLAY button is only a fallback for a plugin that has never had one
+        // (the standalone app), never for a host whose transport vanished.
+        std::atomic<bool> hostSeen { false };
         std::atomic<int> scale { (int) ClockScale::Div16 };
         std::atomic<int> clockSource { (int) ClockSource::Internal };
 

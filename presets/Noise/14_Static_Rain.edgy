@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <PRESET name="Static Rain" category="Noise">
-  <PARAMETERS clock_source="0.0" cutoff="1200.0" eg_decay="0.300000011920929"
+  <PARAMETERS clock_source="1.0" cutoff="1200.0" eg_decay="0.300000011920929"
               fm_amt="0.0" hard_sync="0.0" noise_colour="0.0" noise_level="0.8999999761581421"
               noise_vcf_mod="0.550000011920929" osc1_env="0.1000000014901161"
               osc1_freq="0.4199999868869781" osc1_level="0.1500000059604645"

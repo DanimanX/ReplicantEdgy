@@ -3,6 +3,8 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <functional>
+
 namespace ReplicantEdgy
 {
     //==============================================================================
@@ -32,6 +34,16 @@ namespace ReplicantEdgy
         /** Current value shown by the display (BPM). */
         float getValue() const noexcept { return value; }
 
+        /** Value actually painted: the host tempo while sync is active. */
+        float getDisplayedValue() const noexcept { return shownValue(); }
+
+        /** Shows the host tempo while the sequencer follows the DAW. */
+        void setHostSync (bool followingHost, float hostTempo);
+
+        /** Called before a typed/wheel tempo edit. The panel uses it to leave
+            host sync, because a manual tempo cannot override the DAW. */
+        std::function<void()> onManualEdit;
+
         /** Applies a tempo as if it had been typed. Used by tests. */
         void setValue (float bpm);
 
@@ -40,12 +52,20 @@ namespace ReplicantEdgy
         void commitEdit();
         void cancelEdit();
 
+        float shownValue() const noexcept
+        {
+            return hostSync ? hostBpm : value;
+        }
+
         static void drawDigit (juce::Graphics&, juce::Rectangle<float>, int digit,
                                juce::Colour lit, juce::Colour unlit);
 
         juce::RangedAudioParameter& parameter;
         juce::ParameterAttachment attachment;
         float value = 120.0f;
+
+        bool hostSync = false;
+        float hostBpm = 0.0f;
 
         juce::TextEditor editor;
         bool editing = false;

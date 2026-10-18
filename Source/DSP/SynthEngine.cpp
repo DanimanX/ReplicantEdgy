@@ -67,6 +67,11 @@ namespace ReplicantEdgy
         sequencer.setHostState (hostIsPlaying, hostBpm);
     }
 
+    void SynthEngine::setHostTransportAvailable (bool available) noexcept
+    {
+        sequencer.setHostTransportAvailable (available);
+    }
+
     void SynthEngine::noteOn (int note, float velocity) noexcept
     {
         midiNote = juce::jlimit (0, 127, note);

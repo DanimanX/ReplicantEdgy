@@ -72,8 +72,31 @@ namespace ReplicantEdgy
         repaint();
     }
 
+    void TempoDisplay::setHostSync (bool followingHost, float hostTempo)
+    {
+        const bool changed = followingHost != hostSync
+                             || (followingHost && std::abs (hostTempo - hostBpm) > 0.001f);
+
+        hostSync = followingHost;
+        hostBpm = hostTempo;
+
+        if (changed && ! editing)
+            repaint();
+    }
+
     void TempoDisplay::setValue (float bpm)
     {
+        // A committed tempo is the moment the panel leaves host sync: until
+        // then (a click that opens the editor, or a cancelled edit) the DAW
+        // tempo stays in charge.
+        if (hostSync)
+        {
+            hostSync = false;
+
+            if (onManualEdit != nullptr)
+                onManualEdit();
+        }
+
         const auto& range = parameter.getNormalisableRange();
         const float clamped = juce::jlimit (range.start, range.end, bpm);
 
@@ -113,7 +136,9 @@ namespace ReplicantEdgy
         if (wheel.isReversed)
             step = -step;
 
-        setValue (value + step);
+        // Nudge from what the display shows, which is the DAW tempo while
+        // sync is active, not the stale panel value behind it.
+        setValue (shownValue() + step);
     }
 
     void TempoDisplay::beginEdit()
@@ -123,7 +148,9 @@ namespace ReplicantEdgy
 
         editing = true;
 
-        auto text = juce::String (value, value == std::floor (value) ? 0 : 1);
+        auto text = juce::String (shownValue(),
+                                  std::abs (shownValue() - std::round (shownValue())) < 0.01f
+                                      ? 0 : 1);
         editor.setText (text, juce::dontSendNotification);
         editor.setVisible (true);
         editor.toFront (false);
@@ -196,10 +223,11 @@ namespace ReplicantEdgy
             g.drawHorizontalLine ((int) (inner.getY() + inner.getHeight() * i / 3.0f),
                                   inner.getX(), inner.getRight());
 
-        // Seven-segment value.
-        const bool whole = std::abs (value - std::round (value)) < 0.01f;
-        const auto text = whole ? juce::String (juce::roundToInt (value))
-                                : juce::String (value, 1);
+        // Seven-segment value. While host sync is active this is the DAW tempo.
+        const float displayed = shownValue();
+        const bool whole = std::abs (displayed - std::round (displayed)) < 0.01f;
+        const auto text = whole ? juce::String (juce::roundToInt (displayed))
+                                : juce::String (displayed, 1);
 
         const int numGlyphs = (int) text.length();
         const float glyphGap = 2.5f;
@@ -230,11 +258,11 @@ namespace ReplicantEdgy
             x += cellWidth + glyphGap;
         }
 
-        // BPM caption.
+        // Caption: BPM when the panel owns the clock, SYNC when the DAW does.
         g.setColour (red.withAlpha (0.85f));
         g.setFont (uiFont (7.0f, juce::Font::bold));
-        g.drawText ("BPM", inner.getX(), inner.getBottom() - 11.0f, inner.getWidth(), 10.0f,
-                    juce::Justification::centredRight);
+        g.drawText (hostSync ? "SYNC" : "BPM", inner.getX(), inner.getBottom() - 11.0f,
+                    inner.getWidth(), 10.0f, juce::Justification::centredRight);
 
         juce::ignoreUnused (redHot, t);
     }

@@ -47,7 +47,9 @@ namespace ReplicantEdgy
         inline constexpr float volume        = -4.0f;   // dB
 
         inline constexpr float tempo         = 120.0f;
-        inline constexpr int   clockSource   = 0;       // internal
+        // Factory patches ship host-synced: opening the editor in a DAW must
+        // follow the DAW tempo without asking the user to flip the clock switch.
+        inline constexpr int   clockSource   = 1;       // MIDI (host transport)
         inline constexpr int   scale         = 1;       // 1/16
 
         inline constexpr int   uiTheme       = 0;

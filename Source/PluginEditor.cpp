@@ -25,8 +25,8 @@ namespace
 }
 
 //==============================================================================
-ReplicantEdgyAudioProcessorEditor::ReplicantEdgyAudioProcessorEditor (ReplicantEdgyAudioProcessor& p)
-    : AudioProcessorEditor (&p), processor (p)
+ReplicantEdgyPanel::ReplicantEdgyPanel (ReplicantEdgyAudioProcessor& p)
+    : processor (p)
 {
     // ---- skin -------------------------------------------------------------
     themeBox.addItemList (ThemeManager::getThemeNames(), 1);
@@ -117,11 +117,41 @@ ReplicantEdgyAudioProcessorEditor::ReplicantEdgyAudioProcessorEditor (ReplicantE
         repaint();
     };
 
+    // ---- zoom -------------------------------------------------------------
+    zoomSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+    zoomSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 20);
+    zoomSlider.setRange (50.0, 300.0, 1.0);
+    zoomSlider.setValue (100.0, juce::dontSendNotification);
+    zoomSlider.setNumDecimalPlacesToDisplay (0);
+    zoomSlider.setTextValueSuffix ("%");
+    zoomSlider.setTooltip ("Panel zoom (50-300 %)");
+    addAndMakeVisible (zoomSlider);
+    styleZoomSlider();
+
+    zoomSlider.onValueChange = [this]
+    {
+        if (! updatingZoom && onZoomChanged != nullptr)
+            onZoomChanged ((float) zoomSlider.getValue());
+    };
+
     // Red LED tempo readout under the TEMPO knob.
     if (auto* tempoParameter = processor.apvts.getParameter (ParamID::tempo))
     {
         tempoDisplay = std::make_unique<TempoDisplay> (*tempoParameter);
         addAndMakeVisible (*tempoDisplay);
+
+        // Editing the tempo by hand means leaving host sync: otherwise the
+        // typed value would be silently overridden by the DAW. Keep the
+        // transport running across the switch, so a tempo edit mid-playback
+        // does not silence the sequence.
+        tempoDisplay->onManualEdit = [this]
+        {
+            const bool wasRunning = processor.getEngine().getSequencer().isPlaying();
+
+            processor.setParameterValueAsGesture (ParamID::clockSource, 0.0f);
+            processor.getEngine().getSequencer().setPlaying (wasRunning);
+            repaint();
+        };
     }
 
     // ---- drawer -----------------------------------------------------------
@@ -132,10 +162,11 @@ ReplicantEdgyAudioProcessorEditor::ReplicantEdgyAudioProcessorEditor (ReplicantE
 
     setWantsKeyboardFocus (true);
     setSize (Layout::panelWidth, Layout::panelHeight);
+
     startTimerHz (30);
 }
 
-ReplicantEdgyAudioProcessorEditor::~ReplicantEdgyAudioProcessorEditor()
+ReplicantEdgyPanel::~ReplicantEdgyPanel()
 {
     ThemeManager::getInstance().removeChangeListener (this);
     stopTimer();
@@ -144,7 +175,7 @@ ReplicantEdgyAudioProcessorEditor::~ReplicantEdgyAudioProcessorEditor()
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::setupKnob (Knob& knob, const juce::String& parameterId,
+void ReplicantEdgyPanel::setupKnob (Knob& knob, const juce::String& parameterId,
                                                    const juce::String& tooltip, bool bipolar,
                                                    bool stepKnob)
 {
@@ -159,14 +190,14 @@ void ReplicantEdgyAudioProcessorEditor::setupKnob (Knob& knob, const juce::Strin
         processor.apvts, parameterId, knob.slider);
 }
 
-void ReplicantEdgyAudioProcessorEditor::setupStepKnob (Knob& knob, const juce::String& parameterId,
+void ReplicantEdgyPanel::setupStepKnob (Knob& knob, const juce::String& parameterId,
                                                        const juce::String& tooltip, bool bipolar)
 {
     setupKnob (knob, parameterId, tooltip, bipolar, true);
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::applyBounds()
+void ReplicantEdgyPanel::applyBounds()
 {
     osc1Freq.slider.setBounds (36, 244, 60, 60);
     osc1Env.slider.setBounds (178, 244, 60, 60);
@@ -211,9 +242,20 @@ void ReplicantEdgyAudioProcessorEditor::applyBounds()
     presetsButton.setBounds (Layout::presetsButton().toNearestInt());
     randomButton.setBounds (Layout::randomButton().toNearestInt());
     themeBox.setBounds (Layout::themeBox().toNearestInt());
+    zoomSlider.setBounds (Layout::zoomSlider().toNearestInt());
 }
 
-void ReplicantEdgyAudioProcessorEditor::resized()
+void ReplicantEdgyPanel::styleZoomSlider()
+{
+    zoomSlider.setColour (juce::Slider::backgroundColourId, theme().panelFaceDark);
+    zoomSlider.setColour (juce::Slider::trackColourId, theme().accentAlt);
+    zoomSlider.setColour (juce::Slider::thumbColourId, theme().accent);
+    zoomSlider.setColour (juce::Slider::textBoxBackgroundColourId, theme().panelFaceDark);
+    zoomSlider.setColour (juce::Slider::textBoxTextColourId, theme().accent);
+    zoomSlider.setColour (juce::Slider::textBoxOutlineColourId, theme().accent.withAlpha (0.45f));
+}
+
+void ReplicantEdgyPanel::resized()
 {
     applyBounds();
 
@@ -221,17 +263,18 @@ void ReplicantEdgyAudioProcessorEditor::resized()
     {
         presetDrawer->setBounds (0, Layout::panelHeight + (int) ((1.0f - drawerProgress)
                                                                 * (float) Layout::drawerHeight),
-                                 getWidth(), Layout::drawerHeight);
+                                 Layout::panelWidth, Layout::drawerHeight);
     }
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster* source)
+void ReplicantEdgyPanel::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
     if (source != &ThemeManager::getInstance())
         return;
 
     lookAndFeel.applyTheme();
+    styleZoomSlider();
 
     if (presetDrawer != nullptr)
         presetDrawer->repaint();
@@ -239,7 +282,7 @@ void ReplicantEdgyAudioProcessorEditor::changeListenerCallback (juce::ChangeBroa
     repaint();
 }
 
-void ReplicantEdgyAudioProcessorEditor::timerCallback()
+void ReplicantEdgyPanel::timerCallback()
 {
     if (drawerAnimating)
     {
@@ -286,10 +329,41 @@ void ReplicantEdgyAudioProcessorEditor::timerCallback()
         repaint (906, 206, 358, 348);
         repaint (560, 568, 704, 48);
     }
+
+    updateTempoDisplaySync();
+
+    // The plugin state can carry a zoom restored by the host after the editor
+    // was created. Follow it without fighting a slider the user is dragging.
+    const float requestedZoom = processor.getUiZoom() * 100.0f;
+
+    if (onZoomChanged != nullptr && ! zoomSlider.isMouseButtonDown()
+        && std::abs (requestedZoom - (float) zoomSlider.getValue()) > 0.5f)
+    {
+        onZoomChanged (requestedZoom);
+    }
+}
+
+void ReplicantEdgyPanel::updateTempoDisplaySync()
+{
+    if (tempoDisplay == nullptr)
+        return;
+
+    const auto& sequencer = processor.getEngine().getSequencer();
+    const bool following = sequencer.followsHost() && sequencer.hasHostTempo();
+    const float bpm = following ? (float) sequencer.getHostBpm() : 0.0f;
+
+    tempoDisplay->setHostSync (following, bpm);
+
+    if (following != lastHostSync || std::abs (bpm - lastHostBpm) > 0.001f)
+    {
+        lastHostSync = following;
+        lastHostBpm = bpm;
+        repaint (20, 580, 280, 60);   // clock switch / TEMPO caption area
+    }
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::refreshFromProcessor()
+void ReplicantEdgyPanel::refreshFromProcessor()
 {
     if (auto* themeParameter = processor.apvts.getParameter (ParamID::uiTheme))
         ThemeManager::getInstance().setCurrentIndex (
@@ -309,7 +383,7 @@ void ReplicantEdgyAudioProcessorEditor::refreshFromProcessor()
 //==============================================================================
 // Painting
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::paint (juce::Graphics& g)
+void ReplicantEdgyPanel::paint (juce::Graphics& g)
 {
     drawChassis (g);
     drawHeader (g);
@@ -326,7 +400,7 @@ void ReplicantEdgyAudioProcessorEditor::paint (juce::Graphics& g)
     drawJackLabels (g);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawChassis (juce::Graphics& g)
+void ReplicantEdgyPanel::drawChassis (juce::Graphics& g)
 {
     const auto& t = theme();
     const float w = (float) Layout::panelWidth;
@@ -373,7 +447,7 @@ void ReplicantEdgyAudioProcessorEditor::drawChassis (juce::Graphics& g)
         EdgyLookAndFeel::drawPanelscrew (g, point, 5.0f);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawHeader (juce::Graphics& g)
+void ReplicantEdgyPanel::drawHeader (juce::Graphics& g)
 {
     const auto& t = theme();
 
@@ -417,7 +491,7 @@ void ReplicantEdgyAudioProcessorEditor::drawHeader (juce::Graphics& g)
                       juce::Justification::centredLeft, 1, 0.85f);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawPatchBay (juce::Graphics& g)
+void ReplicantEdgyPanel::drawPatchBay (juce::Graphics& g)
 {
     const auto& t = theme();
     auto& patch = processor.getEngine().getPatchBay();
@@ -495,7 +569,7 @@ void ReplicantEdgyAudioProcessorEditor::drawPatchBay (juce::Graphics& g)
     juce::ignoreUnused (telemetry);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawJackLabels (juce::Graphics& g)
+void ReplicantEdgyPanel::drawJackLabels (juce::Graphics& g)
 {
     const auto& t = theme();
 
@@ -520,7 +594,7 @@ void ReplicantEdgyAudioProcessorEditor::drawJackLabels (juce::Graphics& g)
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::drawSectionFrame (juce::Graphics& g,
+void ReplicantEdgyPanel::drawSectionFrame (juce::Graphics& g,
                                                           juce::Rectangle<float> bounds,
                                                           const juce::String& title)
 {
@@ -567,7 +641,7 @@ void ReplicantEdgyAudioProcessorEditor::drawSectionFrame (juce::Graphics& g,
                           bounds.getRight() - 8.0f);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawSwitch (juce::Graphics& g, juce::Rectangle<float> bounds,
+void ReplicantEdgyPanel::drawSwitch (juce::Graphics& g, juce::Rectangle<float> bounds,
                                                     const juce::String& top,
                                                     const juce::String& bottom, bool topActive,
                                                     bool isVertical)
@@ -617,7 +691,7 @@ void ReplicantEdgyAudioProcessorEditor::drawSwitch (juce::Graphics& g, juce::Rec
     }
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawThreeWaySwitch (juce::Graphics& g,
+void ReplicantEdgyPanel::drawThreeWaySwitch (juce::Graphics& g,
                                                             juce::Rectangle<float> bounds,
                                                             const juce::String& a,
                                                             const juce::String& b,
@@ -661,7 +735,7 @@ void ReplicantEdgyAudioProcessorEditor::drawThreeWaySwitch (juce::Graphics& g,
     g.fillEllipse (lever.getCentreX() - 2.0f, lever.getCentreY() - 2.0f, 4.0f, 4.0f);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawLabel (juce::Graphics& g, float centreX, float y,
+void ReplicantEdgyPanel::drawLabel (juce::Graphics& g, float centreX, float y,
                                                    const juce::String& text, float size,
                                                    juce::Colour colour)
 {
@@ -671,7 +745,7 @@ void ReplicantEdgyAudioProcessorEditor::drawLabel (juce::Graphics& g, float cent
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::drawOscillator1 (juce::Graphics& g)
+void ReplicantEdgyPanel::drawOscillator1 (juce::Graphics& g)
 {
     const auto& t = theme();
     const auto bounds = Layout::osc1Section();
@@ -694,7 +768,7 @@ void ReplicantEdgyAudioProcessorEditor::drawOscillator1 (juce::Graphics& g)
     drawThreeWaySwitch (g, seqTargetSwitch, "OFF", "2", "12", target);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawOscillator2 (juce::Graphics& g)
+void ReplicantEdgyPanel::drawOscillator2 (juce::Graphics& g)
 {
     const auto& t = theme();
     const auto bounds = Layout::osc2Section();
@@ -720,13 +794,13 @@ void ReplicantEdgyAudioProcessorEditor::drawOscillator2 (juce::Graphics& g)
     g.drawText ("HARD SYNC", 238.0f, 430.0f, 86.0f, 10.0f, juce::Justification::centred);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawEnvelopeSection (juce::Graphics& g)
+void ReplicantEdgyPanel::drawEnvelopeSection (juce::Graphics& g)
 {
     drawSectionFrame (g, Layout::egSection(), "EG (VCO)");
     drawLabel (g, 446.0f, 308.0f, "DECAY", 7.2f);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawNoiseSection (juce::Graphics& g)
+void ReplicantEdgyPanel::drawNoiseSection (juce::Graphics& g)
 {
     const auto& t = theme();
     drawSectionFrame (g, Layout::noiseSection(), "NOISE");
@@ -741,7 +815,7 @@ void ReplicantEdgyAudioProcessorEditor::drawNoiseSection (juce::Graphics& g)
     drawLabel (g, 568.0f, 308.0f, "NOISE", 7.2f);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawFilter (juce::Graphics& g)
+void ReplicantEdgyPanel::drawFilter (juce::Graphics& g)
 {
     const auto& t = theme();
     drawSectionFrame (g, Layout::filterSection(), "FILTER (VCF)");
@@ -761,7 +835,7 @@ void ReplicantEdgyAudioProcessorEditor::drawFilter (juce::Graphics& g)
     g.drawText ("20kHz", 620.0f, 414.0f, 40.0f, 10.0f, juce::Justification::centredLeft);
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawVca (juce::Graphics& g)
+void ReplicantEdgyPanel::drawVca (juce::Graphics& g)
 {
     const auto& t = theme();
     drawSectionFrame (g, Layout::vcaSection(), "OUTPUT (VCA)");
@@ -795,7 +869,7 @@ void ReplicantEdgyAudioProcessorEditor::drawVca (juce::Graphics& g)
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::drawStepLeds (juce::Graphics& g)
+void ReplicantEdgyPanel::drawStepLeds (juce::Graphics& g)
 {
     const auto& t = theme();
     const auto telemetry = processor.getEngine().getTelemetry();
@@ -829,7 +903,7 @@ void ReplicantEdgyAudioProcessorEditor::drawStepLeds (juce::Graphics& g)
     }
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawSequencer (juce::Graphics& g)
+void ReplicantEdgyPanel::drawSequencer (juce::Graphics& g)
 {
     const auto& t = theme();
     drawSectionFrame (g, Layout::seqSection(), "SEQUENCER");
@@ -842,7 +916,11 @@ void ReplicantEdgyAudioProcessorEditor::drawSequencer (juce::Graphics& g)
 
     const int clockSource = juce::roundToInt (
         processor.apvts.getRawParameterValue (ParamID::clockSource)->load());
-    drawThreeWaySwitch (g, clockSwitchZone, "MIDI", "EXT", "INT", 2 - clockSource);
+
+    // Notches run top to bottom as EXT / MIDI / INT, which is the order
+    // 2 - clockSource indexes. Getting this backwards would draw the lever on
+    // the wrong label, and MIDI is now the factory default.
+    drawThreeWaySwitch (g, clockSwitchZone, "EXT", "MIDI", "INT", 2 - clockSource);
 
     g.setColour (t.silkscreenDim);
     g.setFont (uiFont (6.5f, juce::Font::plain));
@@ -886,7 +964,7 @@ void ReplicantEdgyAudioProcessorEditor::drawSequencer (juce::Graphics& g)
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::drawScope (juce::Graphics& g)
+void ReplicantEdgyPanel::drawScope (juce::Graphics& g)
 {
     const auto& t = theme();
     const auto bounds = Layout::scopeSection();
@@ -988,7 +1066,7 @@ void ReplicantEdgyAudioProcessorEditor::drawScope (juce::Graphics& g)
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::drawCables (juce::Graphics& g)
+void ReplicantEdgyPanel::drawCables (juce::Graphics& g)
 {
     auto& patch = processor.getEngine().getPatchBay();
     const auto& cables = patch.getCables();
@@ -1016,7 +1094,7 @@ void ReplicantEdgyAudioProcessorEditor::drawCables (juce::Graphics& g)
     }
 }
 
-void ReplicantEdgyAudioProcessorEditor::drawCable (juce::Graphics& g, juce::Point<float> from,
+void ReplicantEdgyPanel::drawCable (juce::Graphics& g, juce::Point<float> from,
                                                    juce::Point<float> to, juce::Colour colour,
                                                    float thickness, float glow, bool preview)
 {
@@ -1065,7 +1143,7 @@ void ReplicantEdgyAudioProcessorEditor::drawCable (juce::Graphics& g, juce::Poin
 //==============================================================================
 // Interaction
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::handleSwitchClick (juce::Point<float> position)
+void ReplicantEdgyPanel::handleSwitchClick (juce::Point<float> position)
 {
     if (osc1ShapeSwitch.contains (position))
     {
@@ -1137,7 +1215,7 @@ void ReplicantEdgyAudioProcessorEditor::handleSwitchClick (juce::Point<float> po
     }
 }
 
-void ReplicantEdgyAudioProcessorEditor::toggleBoolParameter (const juce::String& id)
+void ReplicantEdgyPanel::toggleBoolParameter (const juce::String& id)
 {
     if (auto* parameter = processor.apvts.getParameter (id))
     {
@@ -1147,7 +1225,7 @@ void ReplicantEdgyAudioProcessorEditor::toggleBoolParameter (const juce::String&
     }
 }
 
-void ReplicantEdgyAudioProcessorEditor::cycleChoiceParameter (const juce::String& id, int numStates)
+void ReplicantEdgyPanel::cycleChoiceParameter (const juce::String& id, int numStates)
 {
     if (auto* parameter = processor.apvts.getParameter (id))
     {
@@ -1158,12 +1236,12 @@ void ReplicantEdgyAudioProcessorEditor::cycleChoiceParameter (const juce::String
     }
 }
 
-void ReplicantEdgyAudioProcessorEditor::handleHeaderClick (juce::Point<float>)
+void ReplicantEdgyPanel::handleHeaderClick (juce::Point<float>)
 {
     // Header buttons are real components; nothing to do here yet.
 }
 
-bool ReplicantEdgyAudioProcessorEditor::hitCable (juce::Point<float> point, int& cableIndex) const
+bool ReplicantEdgyPanel::hitCable (juce::Point<float> point, int& cableIndex) const
 {
     const auto& cables = processor.getEngine().getPatchBay().getCables();
     float best = 8.0f;
@@ -1208,13 +1286,13 @@ bool ReplicantEdgyAudioProcessorEditor::hitCable (juce::Point<float> point, int&
     return found;
 }
 
-void ReplicantEdgyAudioProcessorEditor::removeCablesAt (Jack jack)
+void ReplicantEdgyPanel::removeCablesAt (Jack jack)
 {
     processor.getEngine().getPatchBay().disconnect (jack);
     repaint();
 }
 
-void ReplicantEdgyAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
+void ReplicantEdgyPanel::mouseDown (const juce::MouseEvent& e)
 {
     const auto position = e.position;
 
@@ -1252,7 +1330,7 @@ void ReplicantEdgyAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
     }
 }
 
-void ReplicantEdgyAudioProcessorEditor::mouseDrag (const juce::MouseEvent& e)
+void ReplicantEdgyPanel::mouseDrag (const juce::MouseEvent& e)
 {
     if (! draggingCable)
         return;
@@ -1261,7 +1339,7 @@ void ReplicantEdgyAudioProcessorEditor::mouseDrag (const juce::MouseEvent& e)
     repaint (0, 70, Layout::panelWidth, 140);
 }
 
-void ReplicantEdgyAudioProcessorEditor::mouseUp (const juce::MouseEvent& e)
+void ReplicantEdgyPanel::mouseUp (const juce::MouseEvent& e)
 {
     if (! draggingCable)
         return;
@@ -1283,7 +1361,7 @@ void ReplicantEdgyAudioProcessorEditor::mouseUp (const juce::MouseEvent& e)
     repaint();
 }
 
-void ReplicantEdgyAudioProcessorEditor::mouseMove (const juce::MouseEvent& e)
+void ReplicantEdgyPanel::mouseMove (const juce::MouseEvent& e)
 {
     const auto jack = Layout::jackAt (e.position);
 
@@ -1295,13 +1373,13 @@ void ReplicantEdgyAudioProcessorEditor::mouseMove (const juce::MouseEvent& e)
     }
 }
 
-void ReplicantEdgyAudioProcessorEditor::mouseExit (const juce::MouseEvent&)
+void ReplicantEdgyPanel::mouseExit (const juce::MouseEvent&)
 {
     hoverJack = Jack::NumJacks;
     setMouseCursor (juce::MouseCursor::NormalCursor);
 }
 
-bool ReplicantEdgyAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
+bool ReplicantEdgyPanel::keyPressed (const juce::KeyPress& key)
 {
     if (key == juce::KeyPress::escapeKey && drawerOpen)
     {
@@ -1316,10 +1394,67 @@ bool ReplicantEdgyAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
+    // Ctrl/Cmd +/-/0: zoom without hunting for the header slider.
+    const auto modifiers = key.getModifiers();
+
+    if (modifiers.isCommandDown() || modifiers.isCtrlDown())
+    {
+        const auto character = key.getTextCharacter();
+
+        if (character == '+' || character == '=')
+        {
+            nudgeZoom (5.0f);
+            return true;
+        }
+
+        if (character == '-' || character == '_')
+        {
+            nudgeZoom (-5.0f);
+            return true;
+        }
+
+        if (character == '0')
+        {
+            nudgeZoom (100.0f - (float) zoomSlider.getValue());
+            return true;
+        }
+    }
+
     return false;
 }
 
-bool ReplicantEdgyAudioProcessorEditor::connectJacks (Jack source, Jack destination)
+void ReplicantEdgyPanel::nudgeZoom (float deltaPercent)
+{
+    const float next = juce::jlimit (50.0f, 300.0f,
+                                     (float) zoomSlider.getValue() + deltaPercent);
+
+    if (std::abs (next - (float) zoomSlider.getValue()) < 0.5f)
+        return;
+
+    setZoomPercent (next);
+
+    if (onZoomChanged != nullptr)
+        onZoomChanged (next);
+}
+
+void ReplicantEdgyPanel::setZoomPercent (float percent)
+{
+    const juce::ScopedValueSetter<bool> guard (updatingZoom, true);
+    zoomSlider.setValue (juce::jlimit (50.0f, 300.0f, percent), juce::dontSendNotification);
+}
+
+float ReplicantEdgyPanel::getZoomPercent() const noexcept
+{
+    return (float) zoomSlider.getValue();
+}
+
+int ReplicantEdgyPanel::getLogicalHeight() const noexcept
+{
+    const bool drawerOut = drawerOpen || drawerProgress > 0.001f;
+    return Layout::panelHeight + (drawerOut ? Layout::drawerHeight : 0);
+}
+
+bool ReplicantEdgyPanel::connectJacks (Jack source, Jack destination)
 {
     if ((jackIsOutput (source) && jackIsInput (destination))
         || (jackIsInput (source) && jackIsOutput (destination)))
@@ -1335,7 +1470,7 @@ bool ReplicantEdgyAudioProcessorEditor::connectJacks (Jack source, Jack destinat
 }
 
 //==============================================================================
-void ReplicantEdgyAudioProcessorEditor::setPresetDrawerOpen (bool shouldBeOpen, bool animate)
+void ReplicantEdgyPanel::setPresetDrawerOpen (bool shouldBeOpen, bool animate)
 {
     drawerOpen = shouldBeOpen;
 
@@ -1344,6 +1479,10 @@ void ReplicantEdgyAudioProcessorEditor::setPresetDrawerOpen (bool shouldBeOpen, 
         drawerAnimating = false;
         drawerProgress = shouldBeOpen ? 1.0f : 0.0f;
         applyDrawerProgress();
+
+        if (onLogicalHeightChanged != nullptr)
+            onLogicalHeightChanged();
+
         repaint();
         return;
     }
@@ -1355,28 +1494,138 @@ void ReplicantEdgyAudioProcessorEditor::setPresetDrawerOpen (bool shouldBeOpen, 
     if (presetDrawer != nullptr)
         presetDrawer->setVisible (true);
 
-    if (shouldBeOpen)
-        setSize (Layout::panelWidth, Layout::panelHeight + Layout::drawerHeight);
+    // Opening grows the window immediately so the drawer has somewhere to
+    // slide into. Closing keeps the window tall until the animation ends.
+    if (onLogicalHeightChanged != nullptr)
+        onLogicalHeightChanged();
 
     startTimerHz (60);
     repaint();
 }
 
-void ReplicantEdgyAudioProcessorEditor::applyDrawerProgress()
+void ReplicantEdgyPanel::applyDrawerProgress()
 {
-    const bool fullyClosed = drawerProgress <= 0.001f;
-
-    if (fullyClosed && ! drawerOpen)
-        setSize (Layout::panelWidth, Layout::panelHeight);
-    else if (drawerProgress >= 0.999f)
-        setSize (Layout::panelWidth, Layout::panelHeight + Layout::drawerHeight);
+    const bool fullyClosed = drawerProgress <= 0.001f && ! drawerOpen;
 
     if (presetDrawer != nullptr)
     {
         presetDrawer->setBounds (0,
                                  Layout::panelHeight
                                      + (int) ((1.0f - drawerProgress) * (float) Layout::drawerHeight),
-                                 getWidth(), Layout::drawerHeight);
+                                 Layout::panelWidth, Layout::drawerHeight);
         presetDrawer->setVisible (! fullyClosed);
     }
+
+    if (fullyClosed && onLogicalHeightChanged != nullptr)
+        onLogicalHeightChanged();
+}
+
+//==============================================================================
+// Window wrapper: the whole panel is one transform away from any zoom.
+//==============================================================================
+ReplicantEdgyAudioProcessorEditor::ReplicantEdgyAudioProcessorEditor (ReplicantEdgyAudioProcessor& p)
+    : AudioProcessorEditor (&p), processor (p), panel (p)
+{
+    addAndMakeVisible (panel);
+
+    zoom = juce::jlimit (minZoom, maxZoom, processor.getUiZoom());
+    panel.setZoomPercent (zoom * 100.0f);
+
+    panel.onZoomChanged = [this] (float percent) { setZoom (percent * 0.01f); };
+    panel.onLogicalHeightChanged = [this]
+    {
+        updateConstrainer();
+        syncWindowToContent();
+    };
+
+    updateConstrainer();
+    setConstrainer (&constrainer);
+    setResizable (true, true);
+
+    syncWindowToContent();
+}
+
+ReplicantEdgyAudioProcessorEditor::~ReplicantEdgyAudioProcessorEditor()
+{
+    // The constrainer is a member and dies before the base class, so detach it.
+    setResizable (false, false);
+    setConstrainer (nullptr);
+}
+
+void ReplicantEdgyAudioProcessorEditor::paint (juce::Graphics& g)
+{
+    // Letterbox colour for hosts that force a size that is not exactly the
+    // panel's aspect ratio.
+    const auto& t = ReplicantEdgy::ThemeManager::getInstance().getCurrentTheme();
+    g.fillAll (t.chassisBottom.darker (0.45f));
+}
+
+void ReplicantEdgyAudioProcessorEditor::resized()
+{
+    const int logicalHeight = panel.getLogicalHeight();
+    panel.setSize (Layout::panelWidth, logicalHeight);
+
+    const float scaleX = (float) getWidth() / (float) Layout::panelWidth;
+    const float scaleY = (float) getHeight() / (float) logicalHeight;
+    const float scale = juce::jlimit (minZoom, maxZoom, juce::jmin (scaleX, scaleY));
+
+    const float offsetX = ((float) getWidth() - (float) Layout::panelWidth * scale) * 0.5f;
+    const float offsetY = ((float) getHeight() - (float) logicalHeight * scale) * 0.5f;
+
+    panel.setTransform (juce::AffineTransform::scale (scale).translated (offsetX, offsetY));
+
+    if (! syncingWindow)
+    {
+        // A host or corner-resize changed the window: adopt the resulting zoom
+        // so the header readout and the window can never disagree.
+        zoom = scale;
+        panel.setZoomPercent (zoom * 100.0f);
+        processor.setUiZoom (zoom);
+    }
+}
+
+void ReplicantEdgyAudioProcessorEditor::setZoom (float newZoom)
+{
+    zoom = juce::jlimit (minZoom, maxZoom, newZoom);
+    panel.setZoomPercent (zoom * 100.0f);
+    processor.setUiZoom (zoom);
+    syncWindowToContent();
+}
+
+void ReplicantEdgyAudioProcessorEditor::syncWindowToContent()
+{
+    const juce::ScopedValueSetter<bool> guard (syncingWindow, true);
+
+    const int width = juce::roundToInt ((float) Layout::panelWidth * zoom);
+    const int height = juce::roundToInt ((float) panel.getLogicalHeight() * zoom);
+
+    if (width != getWidth() || height != getHeight())
+        setSize (width, height);
+}
+
+void ReplicantEdgyAudioProcessorEditor::updateConstrainer()
+{
+    const int logicalHeight = panel.getLogicalHeight();
+
+    constrainer.setSizeLimits (juce::roundToInt ((float) Layout::panelWidth * minZoom),
+                               juce::roundToInt ((float) logicalHeight * minZoom),
+                               juce::roundToInt ((float) Layout::panelWidth * maxZoom),
+                               juce::roundToInt ((float) logicalHeight * maxZoom));
+    constrainer.setFixedAspectRatio ((double) Layout::panelWidth / (double) logicalHeight);
+}
+
+void ReplicantEdgyAudioProcessorEditor::setPresetDrawerOpen (bool shouldBeOpen, bool animate)
+{
+    panel.setPresetDrawerOpen (shouldBeOpen, animate);
+}
+
+bool ReplicantEdgyAudioProcessorEditor::connectJacks (ReplicantEdgy::Jack source,
+                                                      ReplicantEdgy::Jack destination)
+{
+    return panel.connectJacks (source, destination);
+}
+
+void ReplicantEdgyAudioProcessorEditor::refreshFromProcessor()
+{
+    panel.refreshFromProcessor();
 }
